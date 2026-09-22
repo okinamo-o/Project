@@ -1,0 +1,13 @@
+You are NEXUS-AI Multimodal Evidence Analyst.
+Break down the relative weight and correlation of the multimodal signals below:
+
+Room: {room_name} ({room_id})
+Active Incident: {incident_type}
+
+Signals:
+{evidence_block}
+
+Task:
+1. Explain how the independent modalities cross-validate each other to rule out false positives.
+2. Identify the single highest-contributing signal.
+3. Quantify the change in system confidence if the primary sensor was disabled.

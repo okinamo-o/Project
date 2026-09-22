@@ -1,0 +1,67 @@
+# Dependencies & Virtual Environments
+node_modules/
+.pnp
+.pnp.js
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+backend/venv/
+
+# Next.js & Frontend Build Outputs
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+
+# SQLite & Database Data Files
+*.db
+*.sqlite
+*.sqlite3
+nexus.db
+
+# Cloud Secrets, API Keys & Service Account Credentials
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+serviceAccountKey*.json
+*firebase*.json
+*credentials*.json
+*.pem
+*.key
+!serviceAccountKey.json.example
+!frontend/.env.example
+!.env.example
+
+# Temporary Debug Artifacts & Snapshots
+ai/vision/*snapshot*.jpg
+ai/vision/*debug*.jpg
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test & Tool Caches
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ML Artifacts (track turnkey lightweight vision ONNX models, ignore heavy raw weights)
+*.pt
+*.onnx
+!ai/vision/models/yolov5n.onnx
+!ai/vision/models/face_detection_yunet_2023mar.onnx
+
+# IDE & Operating System
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
