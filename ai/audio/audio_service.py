@@ -159,13 +159,31 @@ class AudioService:
         vocal_mask = (frequencies >= 250) & (frequencies <= 3400)
         vocal_energy_ratio = float(np.sum(fft_magnitudes[vocal_mask]) / (sum_mag + 1e-6))
 
+        # Human fundamental voice band ratio (80Hz - 800Hz)
+        f0_mask = (frequencies >= 80) & (frequencies <= 800)
+        f0_band_ratio = float(np.sum(fft_magnitudes[f0_mask]) / (sum_mag + 1e-6))
+
+        # Normalized Pitch Autocorrelation in human pitch range (80Hz - 320Hz)
+        min_lag = int(self.sample_rate / 320)
+        max_lag = int(self.sample_rate / 80)
+        s_norm = audio_chunk - np.mean(audio_chunk)
+        var = np.sum(s_norm ** 2)
+        if var > 1e-6:
+            corr = np.correlate(s_norm, s_norm, mode="full")[len(s_norm)-1:]
+            pitch_corr = corr[min_lag:max_lag]
+            pitch_r_max = float(pitch_corr.max() / var) if len(pitch_corr) > 0 else 0.0
+        else:
+            pitch_r_max = 0.0
+
         return {
             "rms": round(rms, 4),
             "zcr": round(zcr, 4),
             "spectral_centroid": round(spectral_centroid, 1),
             "peak_freq": round(peak_freq, 1),
             "peak_ratio": round(peak_ratio, 2),
-            "vocal_energy_ratio": round(vocal_energy_ratio, 3)
+            "vocal_energy_ratio": round(vocal_energy_ratio, 3),
+            "pitch_r_max": round(pitch_r_max, 3),
+            "f0_band_ratio": round(f0_band_ratio, 3)
         }
 
     def classify_signal(self, features: Dict[str, float]) -> Tuple[str, float]:
@@ -176,25 +194,27 @@ class AudioService:
         peak_ratio = features.get("peak_ratio", 1.0)
         peak_freq = features.get("peak_freq", 0.0)
         vocal_ratio = features.get("vocal_energy_ratio", 0.0)
+        f0_ratio = features.get("f0_band_ratio", 0.0)
+        pitch_r_max = features.get("pitch_r_max", 0.0)
         current_time = time.time()
 
         # Dynamically adapt ambient noise floor baseline
         if not hasattr(self, 'noise_floor') or self.noise_floor is None:
-            self.noise_floor = max(0.015, rms)
+            self.noise_floor = max(0.020, rms)
         else:
             if rms < self.noise_floor:
                 # Fast adaptation down when room is quiet
                 self.noise_floor = 0.80 * self.noise_floor + 0.20 * rms
             else:
-                # Slow rise so speech bursts do not inflate ambient baseline noise floor
+                # Slow rise so voice / noise bursts do not inflate ambient baseline noise floor
                 self.noise_floor = 0.98 * self.noise_floor + 0.02 * rms
-            self.noise_floor = max(0.005, min(self.noise_floor, 0.20))
+            self.noise_floor = max(0.010, min(self.noise_floor, 0.20))
 
         snr = rms / (self.noise_floor + 1e-6)
 
         # 1. Audible Alarm Siren / Pure Beep Detection
-        is_siren = (sc > 1800.0 and zcr > 0.25 and rms >= max(0.06, self.noise_floor * 2.0))
-        is_pure_alarm = (850.0 <= peak_freq <= 4500.0 and peak_ratio >= 8.0 and rms >= max(0.06, self.noise_floor * 2.0))
+        is_siren = (sc > 1800.0 and zcr > 0.25 and rms >= max(0.08, self.noise_floor * 2.5))
+        is_pure_alarm = (850.0 <= peak_freq <= 4500.0 and peak_ratio >= 8.0 and rms >= max(0.08, self.noise_floor * 2.5))
         is_loud_alarm = (rms > 0.25 and sc > 1800.0 and zcr > 0.25)
 
         if is_siren or is_pure_alarm or is_loud_alarm:
@@ -206,24 +226,29 @@ class AudioService:
             return "IMPACT", 0.88
 
         # 3. Voice Activity Detection (Human Speech)
-        # Criteria:
-        # a) Audible level & distinct energy above running ambient noise floor (SNR >= 1.7)
-        # b) Significant energy concentration in human vocal formants (250Hz - 3400Hz, ratio >= 0.52)
-        # c) Formant resonant peak prominence (peak_ratio >= 1.8)
-        # d) Human pitch & formant frequency band (85Hz - 3200Hz, centroid 250Hz - 3800Hz)
-        is_speech_energy = (rms >= 0.045) and (snr >= 1.7)
-        is_speech_vocal = (vocal_ratio >= 0.52) and (peak_ratio >= 1.8)
-        is_speech_freq = (85.0 <= peak_freq <= 3200.0) and (250.0 <= sc <= 3800.0) and (0.012 <= zcr <= 0.35)
+        # Criteria strictly separated from mechanical sounds (chair squeaks, scrapes, paper, rustle):
+        # a) Minimum conversational loudness (RMS >= 0.080) and distinct SNR above ambient noise (SNR >= 2.2)
+        # b) Spectral centroid strictly within conversational human speech band (250Hz - 1400Hz).
+        #    Chair scrapes and squeaks exhibit centroid > 1500Hz - 2600Hz and are immediately rejected.
+        # c) Vocal core energy concentration (vocal_energy_ratio >= 0.55)
+        # d) Fundamental voice pitch band energy (f0_band_ratio >= 0.12)
+        # e) Human vocal fold quasi-periodicity (pitch_r_max >= 0.30)
+        # f) Voiced zero crossing rate (0.012 <= zcr <= 0.26)
+        is_speech_energy = (rms >= 0.080) and (snr >= 2.2)
+        is_speech_spectrum = (250.0 <= sc <= 1400.0) and (80.0 <= peak_freq <= 1600.0)
+        is_speech_vocal = (vocal_ratio >= 0.55) and (f0_ratio >= 0.12)
+        is_speech_periodicity = (pitch_r_max >= 0.30) and (0.012 <= zcr <= 0.26)
 
-        if is_speech_energy and is_speech_vocal and is_speech_freq:
+        if is_speech_energy and is_speech_spectrum and is_speech_vocal and is_speech_periodicity:
             self.last_speech_time = current_time
-            confidence = min(0.96, max(0.75, 0.70 + (snr * 0.05)))
+            confidence = min(0.98, max(0.78, 0.70 + (snr * 0.05)))
             return "SPEECH", round(confidence, 2)
 
         # 4. Speech Hangover (Smooths out brief natural pauses between words/syllables)
-        if (current_time - self.last_speech_time) < self.speech_hangover_s:
-            if rms >= max(0.035, self.noise_floor * 1.25) and vocal_ratio >= 0.45:
-                return "SPEECH", 0.76
+        # Only active for 0.5s after genuine speech and requires voice centroid <= 1400Hz
+        if (current_time - self.last_speech_time) < 0.5:
+            if rms >= max(0.060, self.noise_floor * 1.8) and sc <= 1400.0 and vocal_ratio >= 0.45:
+                return "SPEECH", 0.78
 
         # 5. Loud unclassified noise
         elif rms > 0.20 and snr >= 3.0:
@@ -245,7 +270,7 @@ class AudioService:
             decay = np.exp(-t * 20)
             signal = 0.8 * decay * np.sin(2 * np.pi * 120 * t) + np.random.normal(0, 0.02, n_samples)
         elif event_type == "SPEECH":
-            signal = 0.25 * np.sin(2 * np.pi * 800 * t) + 0.20 * np.sin(2 * np.pi * 1800 * t) + np.random.normal(0, 0.005, n_samples)
+            signal = 0.30 * np.sin(2 * np.pi * 150 * t) + 0.25 * np.sin(2 * np.pi * 300 * t) + 0.18 * np.sin(2 * np.pi * 600 * t) + np.random.normal(0, 0.005, n_samples)
         else:
             signal = 0.02 * np.sin(2 * np.pi * 60 * t) + np.random.normal(0, 0.005, n_samples)
 
