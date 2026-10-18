@@ -9,6 +9,7 @@ venv/
 .venv/
 env/
 backend/venv/
+backend/venv
 
 # Next.js & Frontend Build Outputs
 .next/

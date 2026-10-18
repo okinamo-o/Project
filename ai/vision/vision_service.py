@@ -121,9 +121,10 @@ class VisionService:
 
         # Probe candidates across multiple backends (DSHOW for standard/USB, MSMF for Windows laptops, CAP_ANY default)
         backends = [
+            ("V4L2", cv2.CAP_V4L2),
+            ("DEFAULT", cv2.CAP_ANY),
             ("DSHOW", cv2.CAP_DSHOW),
-            ("MSMF", cv2.CAP_MSMF),
-            ("DEFAULT", cv2.CAP_ANY)
+            ("MSMF", cv2.CAP_MSMF)
         ]
 
         candidate_cap = None
@@ -137,6 +138,10 @@ class VisionService:
             for backend_name, backend_api in probe_backends:
                 try:
                     cap = cv2.VideoCapture(src_val, backend_api) if is_index else cv2.VideoCapture(src_val)
+                    try:
+                        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    except Exception:
+                        pass
                     if cap.isOpened():
                         # Read multiple frames to verify stream stability and brightness
                         valid_frame = None
@@ -591,7 +596,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NEXUS Vision Subsystem")
     parser.add_argument("--source", default=None, help="Camera index (e.g. 1) or stream URL (e.g. http://192.168.1.144:4747/video)")
     parser.add_argument("--room", default="lab_02", help="Monitored Room ID")
-    parser.add_argument("--interval", type=float, default=1.0, help="Dispatch interval in seconds")
+    parser.add_argument("--interval", type=float, default=0.2, help="Dispatch interval in seconds")
     args = parser.parse_args()
 
     service = VisionService(room_id=args.room, camera_source=args.source)

@@ -44,7 +44,7 @@ async def lifespan(app: FastAPI):
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
         try:
             bg_processes.append(subprocess.Popen([sys.executable, "iot/emulator/telemetry_generator.py"], cwd=project_root))
-            bg_processes.append(subprocess.Popen([sys.executable, "ai/vision/vision_service.py"], cwd=project_root))
+            bg_processes.append(subprocess.Popen([sys.executable, "ai/vision/vision_service.py", "--interval", "0.2"], cwd=project_root))
             bg_processes.append(subprocess.Popen([sys.executable, "ai/audio/audio_service.py"], cwd=project_root))
             logger.info("[NEXUS] Background data generators started automatically.")
         except Exception as e:

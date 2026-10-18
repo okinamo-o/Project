@@ -256,7 +256,7 @@ export default function OperationsCenter() {
       }
     };
     updateSnapshot();
-    const interval = setInterval(updateSnapshot, 1000);
+    const interval = setInterval(updateSnapshot, 200);
     return () => clearInterval(interval);
   }, [snapshotModalOpen]);
 
@@ -1369,22 +1369,29 @@ export default function OperationsCenter() {
             </div>
 
             <div className="rounded-xl overflow-hidden border border-white/10 bg-black relative flex items-center justify-center min-h-[340px]">
-              {visionSnapshot ? (
-                <img
-                  src={`data:image/jpeg;base64,${visionSnapshot}`}
-                  alt="Live Camera Snapshot"
-                  className="w-full h-auto object-contain rounded-lg"
-                />
-              ) : (
-                <div className="text-center p-8 text-slate-400 font-mono text-xs">
-                  <Eye className="h-10 w-10 text-slate-600 mx-auto mb-2" />
-                  No live camera feed available for this zone.
+              <img
+                src={`http://127.0.0.1:8000/api/vision/stream/${selectedRoomId}`}
+                alt="Live Camera Stream"
+                className="w-full h-auto object-contain rounded-lg relative z-10"
+                onError={(e) => {
+                  if (visionSnapshot) {
+                    (e.currentTarget as HTMLImageElement).src = `data:image/jpeg;base64,${visionSnapshot}`;
+                  }
+                }}
+              />
+              {!visionSnapshot && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 text-slate-400 font-mono text-xs z-0">
+                  <Eye className="h-10 w-10 text-slate-600 mb-2 animate-pulse" />
+                  Streaming live edge camera feed...
                 </div>
               )}
             </div>
 
             <div className="flex justify-between items-center text-xs font-mono text-slate-400">
-              <span>MODEL: YOLOv5n + YuNet (DirectShow Index 0)</span>
+              <span className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>PIPELINE: V4L2 Low-Latency Stream (5 FPS) • YOLOv5n + YuNet</span>
+              </span>
               <button
                 type="button"
                 onClick={() => setSnapshotModalOpen(false)}

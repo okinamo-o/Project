@@ -1,3 +1,6 @@
+import asyncio
+import base64
+from fastapi.responses import StreamingResponse
 import datetime
 import logging
 from typing import List, Optional, Dict, Any
@@ -130,3 +133,33 @@ async def get_room_snapshot(room_id: str):
         "status": "NO_FRAME_CAPTURED",
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
     }
+
+@router.get("/stream/{room_id}")
+async def stream_room_camera(room_id: str):
+    """Real-time multipart MJPEG video stream from the latest edge vision frames."""
+    async def frame_generator():
+        last_ts = None
+        try:
+            while True:
+                snap = _LATEST_SNAPSHOTS.get(room_id)
+                if snap and snap.get("snapshot_base64"):
+                    cur_ts = snap.get("timestamp")
+                    if cur_ts != last_ts:
+                        last_ts = cur_ts
+                        b64_data = snap["snapshot_base64"]
+                        if b64_data.startswith("data:image"):
+                            b64_data = b64_data.split(",", 1)[-1]
+                        try:
+                            raw_bytes = base64.b64decode(b64_data)
+                            header = b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
+                            yield (header + raw_bytes + b"\r\n")
+                        except Exception:
+                            pass
+                await asyncio.sleep(0.04)
+        except (asyncio.CancelledError, GeneratorExit):
+            pass
+
+    return StreamingResponse(
+        frame_generator(),
+        media_type="multipart/x-mixed-replace; boundary=frame"
+    )

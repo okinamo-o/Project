@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 NEXUS Hardware & Subsystem Diagnostic Verification Tool
 Run this script on any machine (especially a laptop) to verify that the
@@ -37,9 +38,10 @@ if cv2_ok:
     import numpy as np
 
     backends = [
+        ("V4L2", cv2.CAP_V4L2),
+        ("DEFAULT", cv2.CAP_ANY),
         ("DSHOW", cv2.CAP_DSHOW),
-        ("MSMF", cv2.CAP_MSMF),
-        ("DEFAULT", cv2.CAP_ANY)
+        ("MSMF", cv2.CAP_MSMF)
     ]
 
     for idx in range(3):
