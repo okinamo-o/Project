@@ -122,10 +122,7 @@ class AudioService:
         with self.lock:
             raw = self.audio_buffer.copy()
 
-        # Apply soft-knee compression boost (tanh): amplifies distant weak speech ~3.5x
-        # while smoothly saturating loud audio to prevent digital clipping / distortion.
-        boosted = np.tanh(raw * 3.5).astype(np.float32)
-        return boosted
+        return raw.astype(np.float32)
 
     def extract_features(self, audio_chunk: np.ndarray) -> Dict[str, float]:
         """Calculates physical DSP acoustic descriptors from audio samples."""
@@ -178,20 +175,27 @@ class AudioService:
         zcr = features["zcr"]
         peak_ratio = features.get("peak_ratio", 1.0)
         peak_freq = features.get("peak_freq", 0.0)
+        vocal_ratio = features.get("vocal_energy_ratio", 0.0)
         current_time = time.time()
 
-        # Dynamically adapt ambient noise floor baseline during quiet periods
+        # Dynamically adapt ambient noise floor baseline
         if not hasattr(self, 'noise_floor') or self.noise_floor is None:
-            self.noise_floor = 0.002
-        if rms < max(0.006, self.noise_floor * 1.5) and peak_freq < 80.0:
-            self.noise_floor = 0.95 * self.noise_floor + 0.05 * rms
-            self.noise_floor = max(0.0008, min(self.noise_floor, 0.015))
+            self.noise_floor = max(0.015, rms)
+        else:
+            if rms < self.noise_floor:
+                # Fast adaptation down when room is quiet
+                self.noise_floor = 0.80 * self.noise_floor + 0.20 * rms
+            else:
+                # Slow rise so speech bursts do not inflate ambient baseline noise floor
+                self.noise_floor = 0.98 * self.noise_floor + 0.02 * rms
+            self.noise_floor = max(0.005, min(self.noise_floor, 0.20))
+
+        snr = rms / (self.noise_floor + 1e-6)
 
         # 1. Audible Alarm Siren / Pure Beep Detection
-        # Triggers on frequency-swept emergency sirens or tonal alarm beepers
-        is_siren = (sc > 1800.0 and zcr > 0.25 and rms >= max(0.006, self.noise_floor * 2.0))
-        is_pure_alarm = (850.0 <= peak_freq <= 4500.0 and peak_ratio >= 6.0 and rms >= max(0.006, self.noise_floor * 2.0))
-        is_loud_alarm = (rms > 0.15 and sc > 1800.0 and zcr > 0.25)
+        is_siren = (sc > 1800.0 and zcr > 0.25 and rms >= max(0.06, self.noise_floor * 2.0))
+        is_pure_alarm = (850.0 <= peak_freq <= 4500.0 and peak_ratio >= 8.0 and rms >= max(0.06, self.noise_floor * 2.0))
+        is_loud_alarm = (rms > 0.25 and sc > 1800.0 and zcr > 0.25)
 
         if is_siren or is_pure_alarm or is_loud_alarm:
             confidence = min(0.98, max(0.90, 0.85 + (rms * 0.2)))
@@ -202,22 +206,27 @@ class AudioService:
             return "IMPACT", 0.88
 
         # 3. Voice Activity Detection (Human Speech)
-        # Speech energy clearly distinct from ambient noise, with voice fundamental >= 80Hz
-        speech_threshold = max(0.0050, self.noise_floor * 1.8)
-        is_speech_spectrum = (120.0 <= sc <= 4200.0) and (0.008 <= zcr <= 0.35) and (peak_freq >= 80.0)
+        # Criteria:
+        # a) Audible level & distinct energy above running ambient noise floor (SNR >= 1.7)
+        # b) Significant energy concentration in human vocal formants (250Hz - 3400Hz, ratio >= 0.52)
+        # c) Formant resonant peak prominence (peak_ratio >= 1.8)
+        # d) Human pitch & formant frequency band (85Hz - 3200Hz, centroid 250Hz - 3800Hz)
+        is_speech_energy = (rms >= 0.045) and (snr >= 1.7)
+        is_speech_vocal = (vocal_ratio >= 0.52) and (peak_ratio >= 1.8)
+        is_speech_freq = (85.0 <= peak_freq <= 3200.0) and (250.0 <= sc <= 3800.0) and (0.012 <= zcr <= 0.35)
 
-        if rms >= speech_threshold and is_speech_spectrum:
+        if is_speech_energy and is_speech_vocal and is_speech_freq:
             self.last_speech_time = current_time
-            confidence = min(0.96, max(0.72, 0.70 + (rms * 1.0)))
+            confidence = min(0.96, max(0.75, 0.70 + (snr * 0.05)))
             return "SPEECH", round(confidence, 2)
 
-        # 4. Speech Hangover (Smooths out brief natural pauses between words)
-        hangover_threshold = max(0.0035, self.noise_floor * 1.3)
-        if (current_time - self.last_speech_time) < self.speech_hangover_s and rms >= hangover_threshold and (peak_freq >= 75.0 or rms > speech_threshold):
-            return "SPEECH", 0.78
+        # 4. Speech Hangover (Smooths out brief natural pauses between words/syllables)
+        if (current_time - self.last_speech_time) < self.speech_hangover_s:
+            if rms >= max(0.035, self.noise_floor * 1.25) and vocal_ratio >= 0.45:
+                return "SPEECH", 0.76
 
         # 5. Loud unclassified noise
-        elif rms > 0.18:
+        elif rms > 0.20 and snr >= 3.0:
             return "SUDDEN_NOISE", 0.80
 
         # 6. Ambient normal room baseline

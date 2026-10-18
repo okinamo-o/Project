@@ -1390,7 +1390,7 @@ export default function OperationsCenter() {
             <div className="flex justify-between items-center text-xs font-mono text-slate-400">
               <span className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span>PIPELINE: V4L2 Low-Latency Stream (5 FPS) • YOLOv5n + YuNet</span>
+                <span>PIPELINE: V4L2 Ultra-Fluid Live Stream (30 FPS) • YOLOv5n + YuNet</span>
               </span>
               <button
                 type="button"

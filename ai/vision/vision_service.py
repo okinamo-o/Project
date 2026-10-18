@@ -27,23 +27,33 @@ class VisionService:
         self.camera_available = False
         self.prev_gray = None
         
-        # Threading for real-time camera capture (prevents DirectShow FIFO buffer lag)
+        # Threading for real-time camera capture & decoupled 30 FPS stream
         self.frame_lock = threading.Lock()
+        self.inference_lock = threading.Lock()
         self.latest_raw_frame = None
         self.capture_thread = None
+        self.inference_thread = None
         self.running = True
 
-        # Persistence tracking to prevent flicker
+        # Decoupled state updated by background inference and rendered at 30 FPS
         self.last_detection_time = 0.0
         self.persistence_window_s = 2.0
         self.cached_occupancy = 0
         self.cached_bboxes = []
+        self.current_event_type = "NO_SUBJECT"
+        self.is_feed_blank = False
+        self.mean_brightness = 30.0
+        self.std_brightness = 15.0
+
+        # Persistent HTTP client for low-latency network dispatches
+        self.client = httpx.Client(timeout=2.0)
 
         # Models
         self.yolo_net = None
         self.face_detector = None
         self._init_models()
         self._init_camera(camera_source)
+        self._start_inference_thread()
 
     @staticmethod
     def _download_model_if_missing(model_path: str, url: str, model_name: str):
@@ -155,6 +165,13 @@ class VisionService:
                             # If the feed has realistic brightness (>1.0), it's definitely an active live camera
                             if mean_b > 1.0:
                                 self.cap = cap
+                                try:
+                                    self.cap.set(cv2.CAP_PROP_FPS, 30)
+                                    self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                                    self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                                    self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                                except Exception:
+                                    pass
                                 self.camera_source = src_val
                                 self.camera_available = True
                                 self._start_capture_thread()
@@ -200,6 +217,74 @@ class VisionService:
                     time.sleep(0.01)
             except Exception:
                 time.sleep(0.02)
+
+    def _start_inference_thread(self):
+        """Starts background AI inference worker to decouple DNN compute from 30 FPS stream delivery."""
+        if self.inference_thread is None or not self.inference_thread.is_alive():
+            self.inference_thread = threading.Thread(target=self._inference_worker, daemon=True)
+            self.inference_thread.start()
+
+    def _inference_worker(self):
+        """Asynchronously runs YOLOv5n + YuNet + motion detection on latest frame without blocking 30 FPS stream."""
+        while self.running:
+            raw = None
+            if self.camera_available:
+                with self.frame_lock:
+                    if self.latest_raw_frame is not None:
+                        raw = self.latest_raw_frame.copy()
+
+            if raw is None:
+                time.sleep(0.02)
+                continue
+
+            # 1. Lens occlusion check
+            is_cov, mean_b, std_b = self.is_camera_covered(raw)
+            current_time = time.time()
+
+            if is_cov:
+                with self.inference_lock:
+                    self.is_feed_blank = True
+                    self.mean_brightness = mean_b
+                    self.std_brightness = std_b
+                    self.cached_occupancy = 0
+                    self.cached_bboxes = []
+                    self.current_event_type = "NO_SUBJECT"
+                    self.last_detection_time = 0.0
+                time.sleep(0.05)
+                continue
+
+            # 2. YOLOv5n person detector
+            bboxes = self.detect_objects_yolo(raw, conf_threshold=0.40)
+
+            # 3. Secondary YuNet face detector if YOLO found nothing
+            if not bboxes:
+                face_boxes = self.detect_faces_yunet(raw)
+                if face_boxes:
+                    bboxes = face_boxes[:1]
+
+            # 4. Motion detection
+            sudden_move, _ = self.detect_motion(raw)
+
+            # 5. Occupancy smoothing & Event classification
+            with self.inference_lock:
+                self.is_feed_blank = False
+                self.mean_brightness = mean_b
+                self.std_brightness = std_b
+
+                if len(bboxes) > 0:
+                    self.last_detection_time = current_time
+                    capped = min(len(bboxes), 5)
+                    self.cached_occupancy = capped
+                    self.cached_bboxes = bboxes[:capped]
+                    self.current_event_type = "SUDDEN_MOVEMENT" if sudden_move else "PERSON_DETECTED"
+                elif (current_time - self.last_detection_time) < self.persistence_window_s and self.cached_occupancy > 0:
+                    self.current_event_type = "SUDDEN_MOVEMENT" if sudden_move else "PERSON_DETECTED"
+                else:
+                    self.cached_occupancy = 0
+                    self.cached_bboxes = []
+                    self.current_event_type = "SUDDEN_MOVEMENT" if sudden_move else "NO_SUBJECT"
+
+            time.sleep(0.02)
 
     def is_camera_covered(self, frame: np.ndarray) -> Tuple[bool, float, float]:
         """
@@ -418,14 +503,14 @@ class VisionService:
         return base64.b64encode(buffer).decode('utf-8')
 
     def step(self, occupancy: Optional[int] = None, trigger_movement: bool = False) -> Dict[str, Any]:
-        """Captures one frame, executes object recognition, overlays HUD, and dispatches to backend."""
-        bboxes = []
-        source_name = "synthetic_render"
-        event_type = "NO_SUBJECT"
-        final_occupancy = 0
-        is_feed_blank = False
-        mean_brightness = 0.0
+        """Renders live surveillance HUD at true 30 FPS and dispatches stream snapshot/event to backend."""
         current_time = time.time()
+        source_name = f"camera_source_{self.camera_source}" if self.camera_available else "synthetic_generator"
+        is_feed_blank = False
+        mean_brightness = 30.0
+        bboxes = []
+        final_occupancy = 0
+        event_type = "NO_SUBJECT"
 
         if self.camera_available and self.cap:
             raw_frame = None
@@ -440,21 +525,23 @@ class VisionService:
 
             if raw_frame is not None:
                 frame = raw_frame.copy()
-                source_name = f"camera_source_{self.camera_source}"
-                
-                # Check if camera lens is covered (physically obstructed, shutter closed, or darkness)
-                is_feed_blank, mean_brightness, std_brightness = self.is_camera_covered(raw_frame)
+
+                with self.inference_lock:
+                    is_feed_blank = self.is_feed_blank
+                    mean_brightness = self.mean_brightness
+                    std_brightness = self.std_brightness
+                    bboxes = list(self.cached_bboxes)
+                    final_occupancy = self.cached_occupancy
+                    event_type = self.current_event_type
+
+                if trigger_movement:
+                    event_type = "SUDDEN_MOVEMENT"
+                if occupancy is not None:
+                    final_occupancy = occupancy
+                    if occupancy > 0 and event_type == "NO_SUBJECT":
+                        event_type = "PERSON_DETECTED"
 
                 if is_feed_blank:
-                    # Lens is covered or shutter is closed: guarantee immediate ZERO occupancy
-                    bboxes = []
-                    final_occupancy = 0
-                    self.cached_occupancy = 0
-                    self.cached_bboxes = []
-                    self.last_detection_time = 0.0
-                    event_type = "NO_SUBJECT"
-
-                    # Clear diagnostic banner on frame
                     cv2.rectangle(frame, (15, 200), (625, 305), (10, 10, 30), -1)
                     cv2.rectangle(frame, (15, 200), (625, 305), (0, 0, 255), 2)
                     cv2.putText(frame, f"[!] CAMERA FEED IS BLANK / COVERED (Mean: {mean_brightness:.1f}, Std: {std_brightness:.1f})", (25, 230),
@@ -464,79 +551,32 @@ class VisionService:
                     cv2.putText(frame, "Real-time occupancy reported as 0 (Zone clear).", (25, 285),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 220, 255), 1)
                 else:
-                    # 1. Primary Object Recognition: YOLOv5n
-                    bboxes = self.detect_objects_yolo(frame, conf_threshold=0.40)
+                    # Draw Surveillance Bounding Boxes & HUD Overlays
+                    for b in bboxes:
+                        bx, by, bw, bh = b["box"]
+                        conf = b.get("confidence", 0.90)
+                        box_color = (0, 0, 240) if event_type == "SUDDEN_MOVEMENT" else (0, 230, 110)
 
-                    # 2. Secondary Face/Head Detector: YuNet — ONLY if YOLO found nothing.
-                    #    Never stack YuNet on top of YOLO results (prevents double-counting).
-                    if not bboxes:
-                        face_boxes = self.detect_faces_yunet(frame)
-                        if face_boxes:
-                            # YuNet returns face boxes; take at most 1 to avoid multi-face fragmentation
-                            bboxes = face_boxes[:1]
+                        cv2.rectangle(frame, (bx, by), (bx + bw, by + bh), box_color, 2)
 
-                    # 3. Sudden Motion Analysis
-                    sudden_move, motion_val = self.detect_motion(frame)
-                    if sudden_move or trigger_movement:
-                        event_type = "SUDDEN_MOVEMENT"
+                        cor_len = min(15, bw // 4, bh // 4)
+                        cv2.line(frame, (bx, by), (bx + cor_len, by), (0, 255, 255), 2)
+                        cv2.line(frame, (bx, by), (bx, by + cor_len), (0, 255, 255), 2)
+                        cv2.line(frame, (bx + bw, by + bh), (bx + bw - cor_len, by + bh), (0, 255, 255), 2)
+                        cv2.line(frame, (bx + bw, by + bh), (bx + bw, by + bh - cor_len), (0, 255, 255), 2)
 
-                    # 4. Occupancy Persistence Tracker (Smooths presence over 2.0s window)
-                    if len(bboxes) > 0:
-                        self.last_detection_time = current_time
-                        # Sanity cap: a single room webcam realistically sees at most 5 people
-                        capped_count = min(len(bboxes), 5)
-                        self.cached_occupancy = capped_count
-                        self.cached_bboxes = bboxes[:capped_count]
-                        final_occupancy = capped_count
-                        if event_type != "SUDDEN_MOVEMENT":
-                            event_type = "PERSON_DETECTED"
-                    elif (current_time - self.last_detection_time) < self.persistence_window_s and self.cached_occupancy > 0:
-                        # Occupant is present and sitting still
-                        final_occupancy = self.cached_occupancy
-                        bboxes = self.cached_bboxes
-                        if event_type != "SUDDEN_MOVEMENT":
-                            event_type = "PERSON_DETECTED"
-                    else:
-                        self.cached_occupancy = 0
-                        self.cached_bboxes = []
-                        final_occupancy = 0
-                        if event_type != "SUDDEN_MOVEMENT":
-                            event_type = "NO_SUBJECT"
+                        label = f"PERSON: {int(conf * 100)}%"
+                        cv2.putText(frame, label, (bx, max(18, by - 6)),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 2)
 
-                # Override if explicitly provided by test harness
-                if occupancy is not None:
-                    final_occupancy = occupancy
-                    if occupancy > 0 and event_type == "NO_SUBJECT":
-                        event_type = "PERSON_DETECTED"
+                    # Surveillance OSD Header with 30 FPS indicator
+                    timestamp_str = time.strftime("%Y-%m-%d %H:%M:%S")
+                    cv2.putText(frame, f"NEXUS AI SURVEILLANCE // {self.room_id.upper()}", (15, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 230, 255), 2)
+                    cv2.putText(frame, f"30 FPS LIVE STREAM // YOLOV5n + YUNET // {timestamp_str}", (15, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1)
 
-                # 5. Draw Surveillance Bounding Boxes & HUD Overlays
-                for b in bboxes:
-                    bx, by, bw, bh = b["box"]
-                    conf = b.get("confidence", 0.90)
-                    box_color = (0, 0, 240) if event_type == "SUDDEN_MOVEMENT" else (0, 230, 110)
-                    
-                    # Bounding box
-                    cv2.rectangle(frame, (bx, by), (bx + bw, by + bh), box_color, 2)
-                    
-                    # Target reticle corners
-                    cor_len = min(15, bw // 4, bh // 4)
-                    cv2.line(frame, (bx, by), (bx + cor_len, by), (0, 255, 255), 2)
-                    cv2.line(frame, (bx, by), (bx, by + cor_len), (0, 255, 255), 2)
-                    cv2.line(frame, (bx + bw, by + bh), (bx + bw - cor_len, by + bh), (0, 255, 255), 2)
-                    cv2.line(frame, (bx + bw, by + bh), (bx + bw, by + bh - cor_len), (0, 255, 255), 2)
-                    
-                    label = f"PERSON: {int(conf * 100)}%"
-                    cv2.putText(frame, label, (bx, max(18, by - 6)),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 2)
-
-                # Surveillance OSD Header
-                timestamp_str = time.strftime("%Y-%m-%d %H:%M:%S")
-                cv2.putText(frame, f"NEXUS AI SURVEILLANCE // {self.room_id.upper()}", (15, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 230, 255), 2)
-                cv2.putText(frame, f"DNN DETECTOR: YOLOV5n + YUNET // {timestamp_str}", (15, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1)
-                
-                # Occupancy Status Badge
-                badge_color = (0, 230, 110) if final_occupancy > 0 else (120, 120, 120)
-                cv2.putText(frame, f"OCCUPANCY: {final_occupancy}", (480, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, badge_color, 2)
+                    # Occupancy Status Badge
+                    badge_color = (0, 230, 110) if final_occupancy > 0 else (120, 120, 120)
+                    cv2.putText(frame, f"OCCUPANCY: {final_occupancy}", (480, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, badge_color, 2)
             else:
                 sim_occ = occupancy if occupancy is not None else 0
                 frame, bboxes = self.generate_synthetic_frame(sim_occ, trigger_movement)
@@ -553,7 +593,8 @@ class VisionService:
         metadata = {
             "source": source_name,
             "resolution": f"{frame.shape[1]}x{frame.shape[0]}",
-            "engine": "yolov5n_yunet_dnn_v2"
+            "engine": "yolov5n_yunet_dnn_v2",
+            "fps": 30
         }
         if is_feed_blank:
             metadata["feed_status"] = "BLANK_FEED"
@@ -572,40 +613,51 @@ class VisionService:
         }
 
         try:
-            with httpx.Client(timeout=3.0) as client:
-                res = client.post(f"{self.backend_url}/api/vision/event", json=payload)
-                if res.status_code == 200:
-                    logger.info(f"Vision event dispatched: {event_type} (Occupancy: {final_occupancy}, Source: {source_name})")
-        except Exception as e:
-            logger.warning(f"Could not dispatch vision event: {e}")
+            res = self.client.post(f"{self.backend_url}/api/vision/event", json=payload)
+        except Exception:
+            pass
 
         return payload
 
     def release(self):
         self.running = False
+        if self.inference_thread and self.inference_thread.is_alive():
+            try:
+                self.inference_thread.join(timeout=0.5)
+            except Exception:
+                pass
         if self.capture_thread and self.capture_thread.is_alive():
             try:
-                self.capture_thread.join(timeout=1.0)
+                self.capture_thread.join(timeout=0.5)
             except Exception:
                 pass
         if self.cap and self.cap.isOpened():
             self.cap.release()
             self.cap = None
+        if hasattr(self, 'client'):
+            try:
+                self.client.close()
+            except Exception:
+                pass
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NEXUS Vision Subsystem")
     parser.add_argument("--source", default=None, help="Camera index (e.g. 1) or stream URL (e.g. http://192.168.1.144:4747/video)")
     parser.add_argument("--room", default="lab_02", help="Monitored Room ID")
-    parser.add_argument("--interval", type=float, default=0.2, help="Dispatch interval in seconds")
+    parser.add_argument("--interval", type=float, default=0.033, help="Dispatch interval in seconds (default: 0.033 = 30 FPS)")
     args = parser.parse_args()
 
     service = VisionService(room_id=args.room, camera_source=args.source)
-    print(f"[NEXUS-VISION] Streaming vision frames for {args.room} (Source: {service.camera_source}, Interval: {args.interval}s)...")
+    print(f"[NEXUS-VISION] Streaming vision frames for {args.room} at 30 FPS (Source: {service.camera_source}, Interval: {args.interval:.3f}s)...")
     print("Press Ctrl+C to stop.")
     try:
+        target_interval = args.interval
         while True:
+            t0 = time.time()
             service.step()
-            time.sleep(args.interval)
+            elapsed = time.time() - t0
+            sleep_time = max(0.001, target_interval - elapsed)
+            time.sleep(sleep_time)
     except KeyboardInterrupt:
         service.release()
-        print("\n[NEXUS-VISION] Stopped.")
+        print("[NEXUS-VISION] Stopped.")
