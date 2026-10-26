@@ -6,6 +6,11 @@ import argparse
 import os
 import threading
 from typing import Dict, Any, Tuple, Optional
+try:
+    from scipy.signal import butter, lfilter
+    SCIPY_AVAILABLE = True
+except ImportError:
+    SCIPY_AVAILABLE = False
 
 try:
     import sounddevice as sd
@@ -114,6 +119,25 @@ class AudioService:
             logger.warning(f"Failed to initialize continuous microphone ({e}). Falling back to synthetic simulation.")
             self.mic_available = False
 
+
+    def filter_audio(self, data: np.ndarray, cutoff: float = 160.0) -> np.ndarray:
+        """High-pass filters audio above 160Hz to eliminate 50Hz/60Hz/120Hz power hum and desk thuds."""
+        if len(data) == 0:
+            return data
+        if SCIPY_AVAILABLE and len(data) > 30:
+            try:
+                b, a = butter(4, cutoff / (0.5 * self.sample_rate), btype='high')
+                return lfilter(b, a, data).astype(np.float32)
+            except Exception:
+                pass
+        # Fallback simple first-order highpass filter (y[n] = x[n] - x[n-1] + alpha * y[n-1])
+        alpha = 0.94
+        out = np.zeros_like(data)
+        out[0] = data[0]
+        for i in range(1, len(data)):
+            out[i] = data[i] - data[i-1] + alpha * out[i-1]
+        return out
+
     def get_latest_samples(self) -> np.ndarray:
         """Retrieves the latest continuous audio samples with smooth dynamic boost."""
         if not self.mic_available:
@@ -125,7 +149,7 @@ class AudioService:
         return raw.astype(np.float32)
 
     def extract_features(self, audio_chunk: np.ndarray) -> Dict[str, float]:
-        """Calculates physical DSP acoustic descriptors from audio samples."""
+        """Calculates physical DSP acoustic descriptors from high-pass filtered audio samples."""
         if len(audio_chunk) == 0:
             return {
                 "rms": 0.0,
@@ -133,19 +157,28 @@ class AudioService:
                 "spectral_centroid": 0.0,
                 "peak_freq": 0.0,
                 "peak_ratio": 1.0,
-                "vocal_energy_ratio": 0.0
+                "vocal_energy_ratio": 0.0,
+                "pitch_r_max": 0.0,
+                "f0_band_ratio": 0.0
             }
 
+        # Filter out 50Hz/60Hz/120Hz power supply hum and mechanical floor rumbles
+        clean_chunk = self.filter_audio(audio_chunk)
+
+        # Analyze the most recent 0.40s window for responsive word and speech detection
+        window_size = int(self.sample_rate * 0.40)
+        analysis_chunk = clean_chunk[-window_size:] if len(clean_chunk) >= window_size else clean_chunk
+
         # 1. RMS Energy
-        rms = float(np.sqrt(np.mean(audio_chunk**2)))
+        rms = float(np.sqrt(np.mean(analysis_chunk**2)))
 
         # 2. Zero-Crossing Rate (ZCR)
-        zero_crossings = np.nonzero(np.diff(audio_chunk > 0))[0]
-        zcr = float(len(zero_crossings) / len(audio_chunk)) if len(audio_chunk) > 0 else 0.0
+        zero_crossings = np.nonzero(np.diff(analysis_chunk > 0))[0]
+        zcr = float(len(zero_crossings) / len(analysis_chunk)) if len(analysis_chunk) > 0 else 0.0
 
-        # 3. Spectral Centroid via Fast Fourier Transform (FFT) & Tonal Prominence
-        fft_magnitudes = np.abs(np.fft.rfft(audio_chunk))
-        frequencies = np.fft.rfftfreq(len(audio_chunk), d=1.0 / self.sample_rate)
+        # 3. Spectral Centroid via FFT & Tonal Prominence
+        fft_magnitudes = np.abs(np.fft.rfft(analysis_chunk))
+        frequencies = np.fft.rfftfreq(len(analysis_chunk), d=1.0 / self.sample_rate)
         sum_mag = np.sum(fft_magnitudes)
         mean_mag = np.mean(fft_magnitudes) if len(fft_magnitudes) > 0 else 1.0
 
@@ -159,14 +192,14 @@ class AudioService:
         vocal_mask = (frequencies >= 250) & (frequencies <= 3400)
         vocal_energy_ratio = float(np.sum(fft_magnitudes[vocal_mask]) / (sum_mag + 1e-6))
 
-        # Human fundamental voice band ratio (80Hz - 800Hz)
-        f0_mask = (frequencies >= 80) & (frequencies <= 800)
+        # Human fundamental voice band ratio (120Hz - 800Hz)
+        f0_mask = (frequencies >= 120) & (frequencies <= 800)
         f0_band_ratio = float(np.sum(fft_magnitudes[f0_mask]) / (sum_mag + 1e-6))
 
-        # Normalized Pitch Autocorrelation in human pitch range (80Hz - 320Hz)
-        min_lag = int(self.sample_rate / 320)
-        max_lag = int(self.sample_rate / 80)
-        s_norm = audio_chunk - np.mean(audio_chunk)
+        # Normalized Pitch Autocorrelation in human pitch range (85Hz - 340Hz)
+        min_lag = int(self.sample_rate / 340)
+        max_lag = int(self.sample_rate / 85)
+        s_norm = analysis_chunk - np.mean(analysis_chunk)
         var = np.sum(s_norm ** 2)
         if var > 1e-6:
             corr = np.correlate(s_norm, s_norm, mode="full")[len(s_norm)-1:]
@@ -200,63 +233,59 @@ class AudioService:
 
         # Dynamically adapt ambient noise floor baseline
         if not hasattr(self, 'noise_floor') or self.noise_floor is None:
-            self.noise_floor = max(0.020, rms)
+            self.noise_floor = max(0.001, min(0.03, rms))
         else:
             if rms < self.noise_floor:
                 # Fast adaptation down when room is quiet
-                self.noise_floor = 0.80 * self.noise_floor + 0.20 * rms
+                self.noise_floor = 0.85 * self.noise_floor + 0.15 * rms
             else:
                 # Slow rise so voice / noise bursts do not inflate ambient baseline noise floor
                 self.noise_floor = 0.98 * self.noise_floor + 0.02 * rms
-            self.noise_floor = max(0.010, min(self.noise_floor, 0.20))
+            self.noise_floor = max(0.001, min(self.noise_floor, 0.05))
 
         snr = rms / (self.noise_floor + 1e-6)
 
         # 1. Audible Alarm Siren / Pure Beep Detection
-        is_siren = (sc > 1800.0 and zcr > 0.25 and rms >= max(0.08, self.noise_floor * 2.5))
-        is_pure_alarm = (850.0 <= peak_freq <= 4500.0 and peak_ratio >= 8.0 and rms >= max(0.08, self.noise_floor * 2.5))
-        is_loud_alarm = (rms > 0.25 and sc > 1800.0 and zcr > 0.25)
+        is_siren = (sc > 1800.0 and zcr > 0.25 and rms >= max(0.03, self.noise_floor * 3.0))
+        is_pure_alarm = (850.0 <= peak_freq <= 4500.0 and peak_ratio >= 6.0 and rms >= max(0.03, self.noise_floor * 3.0))
+        is_loud_alarm = (rms > 0.18 and sc > 1800.0 and zcr > 0.25)
 
         if is_siren or is_pure_alarm or is_loud_alarm:
             confidence = min(0.98, max(0.90, 0.85 + (rms * 0.2)))
             return "ALARM", round(confidence, 2)
 
         # 2. Hard transient impact (high energy impulse, high ZCR, non-tonal)
-        elif rms > 0.25 and zcr > 0.28 and peak_ratio < 5.0:
+        elif rms > 0.18 and zcr > 0.25 and peak_ratio < 4.0:
             return "IMPACT", 0.88
 
         # 3. Voice Activity Detection (Human Speech)
-        # Criteria strictly separated from mechanical sounds (chair squeaks, scrapes, paper, rustle):
-        # a) Minimum conversational loudness (RMS >= 0.080) and distinct SNR above ambient noise (SNR >= 2.2)
-        # b) Spectral centroid strictly within conversational human speech band (250Hz - 1400Hz).
-        #    Chair scrapes and squeaks exhibit centroid > 1500Hz - 2600Hz and are immediately rejected.
-        # c) Vocal core energy concentration (vocal_energy_ratio >= 0.55)
-        # d) Fundamental voice pitch band energy (f0_band_ratio >= 0.12)
-        # e) Human vocal fold quasi-periodicity (pitch_r_max >= 0.30)
-        # f) Voiced zero crossing rate (0.012 <= zcr <= 0.26)
-        is_speech_energy = (rms >= 0.080) and (snr >= 2.2)
-        is_speech_spectrum = (250.0 <= sc <= 1400.0) and (80.0 <= peak_freq <= 1600.0)
-        is_speech_vocal = (vocal_ratio >= 0.55) and (f0_ratio >= 0.12)
-        is_speech_periodicity = (pitch_r_max >= 0.30) and (0.012 <= zcr <= 0.26)
+        # Robust criteria calibrated for real conversational voice:
+        # a) Minimum energy: SNR >= 1.5 above ambient floor (captures normal speaking volume)
+        # b) Vocal formant energy ratio: vocal_ratio >= 0.28
+        # c) Spectral centroid within conversational voice band (250Hz - 3400Hz)
+        # d) Harmonic vocal fold vibration: pitch_r_max >= 0.16 (detects voiced syllables)
+        # e) Human voice frequency span: 100Hz - 2800Hz (accommodates male/female pitch and formants)
+        is_speech_energy = (rms >= max(0.0030, self.noise_floor * 1.5))
+        is_speech_spectrum = (250.0 <= sc <= 3400.0)
+        is_speech_vocal = (vocal_ratio >= 0.28)
+        is_speech_periodicity = (pitch_r_max >= 0.16) and (0.015 <= zcr <= 0.32)
+        is_speech_pitch = (100.0 <= peak_freq <= 2800.0)
 
-        if is_speech_energy and is_speech_spectrum and is_speech_vocal and is_speech_periodicity:
+        if is_speech_energy and is_speech_spectrum and is_speech_vocal and is_speech_periodicity and is_speech_pitch:
             self.last_speech_time = current_time
-            confidence = min(0.98, max(0.78, 0.70 + (snr * 0.05)))
+            confidence = min(0.98, max(0.75, 0.70 + (snr * 0.04)))
             return "SPEECH", round(confidence, 2)
 
-        # 4. Speech Hangover (Smooths out brief natural pauses between words/syllables)
-        # Only active for 0.5s after genuine speech and requires voice centroid <= 1400Hz
-        if (current_time - self.last_speech_time) < 0.5:
-            if rms >= max(0.060, self.noise_floor * 1.8) and sc <= 1400.0 and vocal_ratio >= 0.45:
-                return "SPEECH", 0.78
+        # 4. Speech Hangover (Smooths out brief natural pauses between words for 1.5s)
+        if (current_time - self.last_speech_time) < 1.5 and rms >= max(0.0020, self.noise_floor * 1.2):
+            return "SPEECH", 0.76
 
         # 5. Loud unclassified noise
-        elif rms > 0.20 and snr >= 3.0:
+        if rms > 0.18 and snr >= 3.0:
             return "SUDDEN_NOISE", 0.80
 
         # 6. Ambient normal room baseline
-        else:
-            return "NORMAL", 0.95
+        return "NORMAL", 0.95
 
     def generate_synthetic_chunk(self, event_type: str = "NORMAL", duration_s: float = 1.0) -> np.ndarray:
         """Generates realistic synthetic acoustic wave samples for testing."""
@@ -270,26 +299,38 @@ class AudioService:
             decay = np.exp(-t * 20)
             signal = 0.8 * decay * np.sin(2 * np.pi * 120 * t) + np.random.normal(0, 0.02, n_samples)
         elif event_type == "SPEECH":
-            signal = 0.30 * np.sin(2 * np.pi * 150 * t) + 0.25 * np.sin(2 * np.pi * 300 * t) + 0.18 * np.sin(2 * np.pi * 600 * t) + np.random.normal(0, 0.005, n_samples)
+            # Formants: F0 at 220Hz, F1 at 440Hz, F2 at 880Hz
+            signal = (0.035 * np.sin(2 * np.pi * 220 * t) +
+                      0.025 * np.sin(2 * np.pi * 440 * t) +
+                      0.018 * np.sin(2 * np.pi * 880 * t) +
+                      np.random.normal(0, 0.001, n_samples))
         else:
-            signal = 0.02 * np.sin(2 * np.pi * 60 * t) + np.random.normal(0, 0.005, n_samples)
+            signal = 0.003 * np.sin(2 * np.pi * 120 * t) + np.random.normal(0, 0.002, n_samples)
 
         return signal.astype(np.float32)
 
     def step(self, simulated_event: Optional[str] = None) -> Dict[str, Any]:
         """Samples the continuous buffer, extracts DSP metrics, classifies, and dispatches to backend."""
+        classified_type = "NORMAL"
+        confidence = 0.95
+        features = {"rms": 0.001, "spectral_centroid": 1000.0, "zcr": 0.05}
         source = "synthetic_generator"
-        if simulated_event is not None:
-            samples = self.generate_synthetic_chunk(simulated_event)
-            source = f"synthetic_{simulated_event.lower()}"
-        elif self.mic_available:
-            samples = self.get_latest_samples()
-            source = f"microphone_dev_{self.device_index}"
-        else:
-            samples = self.generate_synthetic_chunk("NORMAL")
 
-        features = self.extract_features(samples)
-        classified_type, confidence = self.classify_signal(features)
+        try:
+            if simulated_event is not None:
+                samples = self.generate_synthetic_chunk(simulated_event)
+                source = f"synthetic_{simulated_event.lower()}"
+            elif self.mic_available:
+                samples = self.get_latest_samples()
+                source = f"microphone_dev_{self.device_index}"
+            else:
+                samples = self.generate_synthetic_chunk("NORMAL")
+
+            features = self.extract_features(samples)
+            classified_type, confidence = self.classify_signal(features)
+        except Exception as e:
+            logger.error(f"Error in acoustic DSP/classification: {e}")
+            classified_type, confidence = "NORMAL", 0.95
 
         if simulated_event is not None and simulated_event != "NORMAL":
             classified_type = simulated_event
@@ -299,9 +340,9 @@ class AudioService:
             "room_id": self.room_id,
             "event_type": classified_type,
             "confidence": confidence,
-            "rms_energy": features["rms"],
-            "spectral_centroid": features["spectral_centroid"],
-            "zero_crossing_rate": features["zcr"],
+            "rms_energy": features.get("rms", 0.001),
+            "spectral_centroid": features.get("spectral_centroid", 1000.0),
+            "zero_crossing_rate": features.get("zcr", 0.05),
             "metadata": {
                 "source": source,
                 "sample_rate": self.sample_rate,
@@ -313,7 +354,7 @@ class AudioService:
             with httpx.Client(timeout=3.0) as client:
                 res = client.post(f"{self.backend_url}/api/audio/event", json=payload)
                 if res.status_code == 200:
-                    logger.info(f"Audio event dispatched: {classified_type} (RMS: {features['rms']}, Centroid: {features['spectral_centroid']}Hz, Source: {source})")
+                    logger.info(f"Audio event dispatched: {classified_type} (RMS: {features.get('rms', 0.0)}, Centroid: {features.get('spectral_centroid', 0.0)}Hz, Source: {source})")
         except Exception as e:
             logger.warning(f"Could not dispatch audio event: {e}")
 
@@ -341,10 +382,13 @@ if __name__ == "__main__":
     service = AudioService(room_id=args.room, device_index=args.device, use_mic=(args.simulate is None))
     print(f"[NEXUS-AUDIO] Monitoring room '{args.room}' (Mic: {service.mic_available}, Device: {service.device_index})...")
     print("Press Ctrl+C to stop.")
-    try:
-        while True:
+    while True:
+        try:
             service.step(simulated_event=args.simulate)
-            time.sleep(args.interval)
-    except KeyboardInterrupt:
-        service.stop()
-        print("\n[NEXUS-AUDIO] Stopped.")
+        except KeyboardInterrupt:
+            service.stop()
+            print("\n[NEXUS-AUDIO] Stopped.")
+            break
+        except Exception as e:
+            logger.error(f"Error in audio main loop: {e}")
+        time.sleep(args.interval)

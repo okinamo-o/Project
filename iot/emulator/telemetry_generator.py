@@ -3,6 +3,8 @@ import random
 import httpx
 import logging
 import argparse
+import json
+import os
 from typing import Dict, Any, List
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] [NEXUS-IOT] %(message)s")
@@ -155,6 +157,103 @@ ROOM_PROFILES: Dict[str, Dict[str, Any]] = {
     }
 }
 
+
+def get_wokwi_overrides() -> Dict[str, float]:
+    """
+    Dynamically inspects Wokwi schematic files (diagram.json / diagram.jason)
+    and extracts interactive sensor attributes (DHT22, gas pot, smoke pot, etc.).
+    """
+    possible_paths = [
+        "iot/wokwi/diagram.json",
+        "wokwi/diagram.json",
+        "diagram.json",
+        "iot/wokwi/diagram.jason",
+        "wokwi/diagram.jason",
+        "diagram.jason"
+    ]
+    overrides: Dict[str, float] = {}
+    for path in possible_paths:
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            for part in data.get("parts", []):
+                pid = part.get("id", "")
+                ptype = part.get("type", "")
+                attrs = part.get("attrs", {})
+                if pid == "dht" or ptype == "wokwi-dht22":
+                    if "temperature" in attrs:
+                        try: overrides["temperature"] = float(attrs["temperature"])
+                        except (ValueError, TypeError): pass
+                    if "humidity" in attrs:
+                        try: overrides["humidity"] = float(attrs["humidity"])
+                        except (ValueError, TypeError): pass
+                elif pid == "gas_pot" or (ptype == "wokwi-potentiometer" and "gas" in str(attrs.get("label", "")).lower()):
+                    if "value" in attrs:
+                        try: overrides["gas"] = float(attrs["value"])
+                        except (ValueError, TypeError): pass
+                elif pid == "smoke_pot" or (ptype == "wokwi-potentiometer" and "smoke" in str(attrs.get("label", "")).lower()):
+                    if "value" in attrs:
+                        try: overrides["smoke"] = float(attrs["value"])
+                        except (ValueError, TypeError): pass
+                elif pid == "pir" or ptype == "wokwi-pir-motion-sensor":
+                    if "motion" in attrs:
+                        try: overrides["motion"] = float(attrs["motion"])
+                        except (ValueError, TypeError): pass
+                elif pid == "ldr" or ptype == "wokwi-photoresistor-sensor":
+                    for key in ["lux", "value", "light"]:
+                        if key in attrs:
+                            try:
+                                overrides["light"] = float(attrs[key])
+                                break
+                            except (ValueError, TypeError): pass
+                elif pid == "mpu" or ptype == "wokwi-mpu6050":
+                    for key in ["vibration", "accel", "value"]:
+                        if key in attrs:
+                            try:
+                                overrides["vibration"] = float(attrs[key])
+                                break
+                            except (ValueError, TypeError): pass
+            if overrides:
+                break
+        except Exception as e:
+            logger.debug(f"Failed to parse Wokwi diagram from {path}: {e}")
+    return overrides
+
+
+_last_wokwi_check_ts = 0.0
+_is_wokwi_active = False
+
+def is_live_wokwi_active(backend_url: str = "http://127.0.0.1:8000") -> bool:
+    """Detects if an active Wokwi simulator (device_id: esp32_lab02) is posting to lab_02."""
+    global _last_wokwi_check_ts, _is_wokwi_active
+    now = time.time()
+    if now - _last_wokwi_check_ts < 2.0:
+        return _is_wokwi_active
+
+    _last_wokwi_check_ts = now
+    try:
+        with httpx.Client(timeout=1.0) as client:
+            res = client.get(f"{backend_url}/api/sensors/room/lab_02/latest")
+            if res.status_code == 200:
+                data = res.json()
+                temp_info = data.get("readings", {}).get("temperature", {})
+                ts_str = temp_info.get("timestamp")
+                dev = temp_info.get("device_id")
+                if ts_str and dev == "esp32_lab02":
+                    from datetime import datetime, timezone
+                    dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    age = (datetime.now(timezone.utc) - dt).total_seconds()
+                    _is_wokwi_active = (age <= 6.0)
+                    return _is_wokwi_active
+    except Exception:
+        pass
+    _is_wokwi_active = False
+    return False
+
 class TelemetryGenerator:
     """
     Simulates an ESP32 edge node streaming multi-sensor telemetry to NEXUS.
@@ -170,7 +269,7 @@ class TelemetryGenerator:
         self.backend_url = backend_url
         self.room_id = room_id
         profile = ROOM_PROFILES.get(room_id, {})
-        self.device_id = device_id or profile.get("device_id", f"esp32_{room_id}")
+        self.device_id = device_id or (f"sim_esp32_{room_id}" if room_id == "lab_02" else profile.get("device_id", f"esp32_{room_id}"))
         self.step_count = 0
 
     def generate_packet(self, scenario: str = "NORMAL") -> Dict[str, Any]:
@@ -233,6 +332,24 @@ class TelemetryGenerator:
             motion = 1 if random.random() < prof["motion_prob"] else 0
             light = prof["light_base"] + int(15 * random.uniform(-1, 1))
 
+            # Dynamically apply real-time Wokwi diagram edits for lab_02
+            if self.room_id == "lab_02":
+                wokwi_vals = get_wokwi_overrides()
+                if "temperature" in wokwi_vals:
+                    temp = wokwi_vals["temperature"] + random.uniform(-0.1, 0.1)
+                if "humidity" in wokwi_vals:
+                    humidity = wokwi_vals["humidity"] + random.uniform(-0.2, 0.2)
+                if "gas" in wokwi_vals:
+                    gas = max(0.0, wokwi_vals["gas"] + random.uniform(-1.0, 1.0))
+                if "smoke" in wokwi_vals:
+                    smoke = max(0.0, wokwi_vals["smoke"] + random.uniform(-0.05, 0.05))
+                if "motion" in wokwi_vals:
+                    motion = int(wokwi_vals["motion"])
+                if "light" in wokwi_vals:
+                    light = int(wokwi_vals["light"])
+                if "vibration" in wokwi_vals:
+                    vibration = max(0.001, wokwi_vals["vibration"])
+
         readings = [
             {"sensor_type": "temperature", "value": round(temp, 2), "unit": "C"},
             {"sensor_type": "humidity", "value": round(humidity, 1), "unit": "%"},
@@ -282,6 +399,8 @@ def run_multi_room_network(backend_url: str = "http://127.0.0.1:8000", interval:
         while True:
             success_count = 0
             for gen in generators:
+                if gen.room_id == "lab_02" and is_live_wokwi_active(backend_url):
+                    continue
                 if gen.dispatch(client=client, scenario="NORMAL"):
                     success_count += 1
             logger.info(f"[NETWORK MESH] Broadcasted live microclimates across {success_count}/{len(generators)} zones.")

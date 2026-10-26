@@ -12,7 +12,15 @@ const char* WIFI_PASSWORD = "";
 
 // NEXUS Backend Telemetry Endpoint
 // In Wokwi simulation, host machine is accessible via host.wokwi.internal or custom IP
-const char* SERVER_URL = "http://host.wokwi.internal:8000/api/sensors/batch";
+// Multi-Gateway Endpoint Fallback (host.wokwi.internal -> 10.0.2.2 -> LAN IP -> localhost)
+const char* SERVER_URLS[] = {
+  "http://host.wokwi.internal:8000/api/sensors/batch",
+  "http://10.0.2.2:8000/api/sensors/batch",
+  "http://192.168.1.207:8000/api/sensors/batch",
+  "http://localhost:8000/api/sensors/batch"
+};
+const int NUM_SERVER_URLS = 4;
+int active_url_idx = 0;
 
 // Pin Assignments
 #define DHTPIN 4

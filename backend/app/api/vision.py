@@ -36,11 +36,11 @@ async def ingest_vision_event(
     event_data: VisionEventCreate,
     db: AsyncSession = Depends(get_db)
 ):
-    """Ingest structured vision event from local OpenCV vision service at up to 30 FPS."""
+    """Ingest structured vision event from local OpenCV vision service at up to 45 FPS."""
     now = datetime.datetime.now(datetime.timezone.utc)
     ts = now.isoformat()
 
-    # Pre-decode JPEG bytes once so the 30 FPS MJPEG stream generator doesn't repeat base64 decoding
+    # Pre-decode JPEG bytes once so the 45 FPS MJPEG stream generator doesn't repeat base64 decoding
     raw_jpeg = None
     if event_data.snapshot_base64:
         b64_str = event_data.snapshot_base64
@@ -51,7 +51,7 @@ async def ingest_vision_event(
         except Exception:
             pass
 
-    # Update in-memory snapshot cache and stream bytes for ultra-fluid 30 FPS video stream
+    # Update in-memory snapshot cache and stream bytes for ultra-fluid 45 FPS video stream
     _LATEST_SNAPSHOTS[event_data.room_id] = {
         "room_id": event_data.room_id,
         "timestamp": ts,
@@ -62,7 +62,7 @@ async def ingest_vision_event(
     if raw_jpeg:
         _LATEST_STREAM_BYTES[event_data.room_id] = raw_jpeg
 
-    # Throttle DB writes & Fusion evaluation to state changes or 1Hz heartbeat (avoids SQLite disk thrashing at 30 FPS)
+    # Throttle DB writes & Fusion evaluation to state changes or 1Hz heartbeat (avoids SQLite disk thrashing at 45 FPS)
     last_info = _LAST_DB_EVENT.get(event_data.room_id)
     should_persist = (
         last_info is None or
@@ -123,7 +123,17 @@ async def ingest_vision_event(
         }
         await event_manager.broadcast(payload)
 
-    return {"status": "ingested", "room_id": event_data.room_id}
+    return {
+        "status": "ingested",
+        "room_id": event_data.room_id,
+        "event": {
+            "room_id": event_data.room_id,
+            "event_type": event_data.event_type,
+            "occupancy": event_data.occupancy_count,
+            "confidence": event_data.confidence,
+            "timestamp": ts
+        }
+    }
 
 @router.get("/latest/{room_id}")
 async def get_latest_vision(
@@ -169,7 +179,7 @@ async def get_room_snapshot(room_id: str):
 
 @router.get("/stream/{room_id}")
 async def stream_room_camera(room_id: str):
-    """Real-time multipart MJPEG 30 FPS video stream from the latest edge vision frames."""
+    """Real-time multipart MJPEG 45 FPS video stream from the latest edge vision frames."""
     async def frame_generator():
         last_ts = None
         try:

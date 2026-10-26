@@ -77,7 +77,8 @@ async def get_latest_audio(
     room_id: str,
     db: AsyncSession = Depends(get_db)
 ):
-    """Get the latest acoustic event for a monitored zone."""
+    """Get the latest acoustic event for a monitored zone with staleness decay to NORMAL."""
+    now = datetime.datetime.now(datetime.timezone.utc)
     query = (
         select(AudioEvent)
         .where(AudioEvent.room_id == room_id)
@@ -91,14 +92,26 @@ async def get_latest_audio(
             "room_id": room_id,
             "event_type": "NORMAL",
             "confidence": 1.0,
-            "rms_energy": 0.02,
-            "spectral_centroid": 800.0,
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
+            "rms_energy": 0.0015,
+            "spectral_centroid": 1800.0,
+            "timestamp": now.isoformat()
         }
+
+    # Acoustic events are physical and transient; if no event has arrived in > 4.0s,
+    # the room environment has naturally reverted to NORMAL quiet baseline.
+    ev_ts = ev.timestamp
+    if ev_ts.tzinfo is None:
+        ev_ts = ev_ts.replace(tzinfo=datetime.timezone.utc)
+    age_seconds = (now - ev_ts).total_seconds()
+
+    effective_type = ev.event_type if age_seconds <= 4.0 else "NORMAL"
+    effective_confidence = ev.confidence if age_seconds <= 4.0 else 0.95
+
     return {
         "room_id": ev.room_id,
-        "event_type": ev.event_type,
-        "confidence": ev.confidence,
+        "event_type": effective_type,
+        "confidence": effective_confidence,
         "metadata": ev.event_metadata,
-        "timestamp": ev.timestamp.isoformat()
+        "timestamp": ev.timestamp.isoformat(),
+        "age_seconds": round(age_seconds, 2)
     }

@@ -1,3 +1,4 @@
+import time
 import datetime
 import logging
 from typing import List, Optional
@@ -13,6 +14,15 @@ from backend.app.db.firebase_client import sync_telemetry_to_firebase
 
 router = APIRouter()
 logger = logging.getLogger("nexus.api.sensors")
+
+_last_wokwi_timestamp: float = 0.0
+
+@router.get("/status/wokwi")
+async def get_wokwi_status():
+    """Returns whether an active Wokwi hardware node is currently streaming."""
+    active = (time.time() - _last_wokwi_timestamp) < 15.0
+    return {"wokwi_active": active, "last_seen_seconds_ago": round(time.time() - _last_wokwi_timestamp, 1)}
+
 
 @router.post("/reading")
 async def ingest_sensor_reading(
@@ -94,6 +104,14 @@ async def ingest_sensor_batch(
     db: AsyncSession = Depends(get_db)
 ):
     """Ingest a batch of sensor readings from an ESP32 multi-sensor payload."""
+    global _last_wokwi_timestamp
+    now_mono = time.time()
+    if batch.device_id == "esp32_lab02" or "wokwi" in str(batch.device_id).lower():
+        _last_wokwi_timestamp = now_mono
+    elif str(batch.device_id).startswith("sim_esp32_lab"):
+        if (now_mono - _last_wokwi_timestamp) < 15.0:
+            return {"status": "suppressed_by_live_wokwi", "count": 0}
+
     ts = batch.timestamp or datetime.datetime.now(datetime.timezone.utc)
     created_ids = []
     broadcast_items = []
@@ -135,10 +153,12 @@ async def ingest_sensor_batch(
     await db.commit()
 
     # Broadcast multi-channel event
+    is_wokwi_node = (batch.device_id == "esp32_lab02" or "wokwi" in str(batch.device_id).lower())
     payload = {
         "type": "SENSOR_BATCH",
         "room_id": batch.room_id,
         "device_id": batch.device_id,
+        "is_wokwi": is_wokwi_node,
         "readings": broadcast_items,
         "timestamp": ts.isoformat()
     }

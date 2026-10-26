@@ -1,0 +1,8 @@
+[wokwi]
+version = 1
+firmware = "iot/firmware/sketch.ino"
+diagram = "iot/wokwi/diagram.json"
+
+[serial]
+mode = "tcp"
+port = 4000

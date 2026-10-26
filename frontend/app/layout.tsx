@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'NEXUS — Multimodal AI Digital Twin Operations Center',
-  description: 'Intelligent Environmental Monitoring, Predictive Analytics and Autonomous Incident Fusion',
+  title: 'NEXUS — Smart Building Digital Twin',
+  description: 'Interactive 3D Building Monitor, Live Sensors, Forecast & AI Assistant',
 };
 
 export default function RootLayout({
@@ -12,8 +12,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark scroll-smooth">
-      <body className="ambient-mesh min-h-screen text-slate-100 antialiased selection:bg-cyan-500 selection:text-black font-sans">
+    <html lang="en" data-theme="daylight" className="scroll-smooth">
+      <body className="min-h-screen antialiased font-sans">
         {children}
       </body>
     </html>

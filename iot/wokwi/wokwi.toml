@@ -2,3 +2,7 @@
 version = 1
 firmware = "../firmware/sketch.ino"
 elf = "../firmware/build/sketch.elf"
+
+[serial]
+mode = "tcp"
+port = 4000

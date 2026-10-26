@@ -27,7 +27,7 @@ class VisionService:
         self.camera_available = False
         self.prev_gray = None
         
-        # Threading for real-time camera capture & decoupled 30 FPS stream
+        # Threading for real-time camera capture & decoupled 45 FPS stream
         self.frame_lock = threading.Lock()
         self.inference_lock = threading.Lock()
         self.latest_raw_frame = None
@@ -35,9 +35,9 @@ class VisionService:
         self.inference_thread = None
         self.running = True
 
-        # Decoupled state updated by background inference and rendered at 30 FPS
+        # Decoupled state updated by background inference and rendered at 45 FPS
         self.last_detection_time = 0.0
-        self.persistence_window_s = 2.0
+        self.persistence_window_s = 0.5
         self.cached_occupancy = 0
         self.cached_bboxes = []
         self.current_event_type = "NO_SUBJECT"
@@ -166,7 +166,7 @@ class VisionService:
                             if mean_b > 1.0:
                                 self.cap = cap
                                 try:
-                                    self.cap.set(cv2.CAP_PROP_FPS, 30)
+                                    self.cap.set(cv2.CAP_PROP_FPS, 60)
                                     self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
                                     self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
                                     self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -219,13 +219,13 @@ class VisionService:
                 time.sleep(0.02)
 
     def _start_inference_thread(self):
-        """Starts background AI inference worker to decouple DNN compute from 30 FPS stream delivery."""
+        """Starts background AI inference worker to decouple DNN compute from 45 FPS stream delivery."""
         if self.inference_thread is None or not self.inference_thread.is_alive():
             self.inference_thread = threading.Thread(target=self._inference_worker, daemon=True)
             self.inference_thread.start()
 
     def _inference_worker(self):
-        """Asynchronously runs YOLOv5n + YuNet + motion detection on latest frame without blocking 30 FPS stream."""
+        """Asynchronously runs YOLOv5n + YuNet + motion detection on latest frame without blocking 45 FPS stream."""
         while self.running:
             raw = None
             if self.camera_available:
@@ -288,20 +288,40 @@ class VisionService:
 
     def is_camera_covered(self, frame: np.ndarray) -> Tuple[bool, float, float]:
         """
-        Robustly detects if the camera lens is physically covered (by hand, finger, shutter, tape, or paper).
-        Works under dark rooms, room lighting, and daylight.
+        Robustly detects if the camera lens is physically covered (by hand, thumb, finger, shutter, tape, or paper).
+        Checks darkness, flat contrast, edge density, and skin transillumination.
         Returns (is_covered, mean_val, std_val).
         """
         if frame is None or frame.size == 0:
             return True, 0.0, 0.0
+        h, w = frame.shape[:2]
         mean_val = float(np.mean(frame))
         std_val = float(np.std(frame))
-        
-        # 1. Pitch black / zero light (shutter closed or in darkness): mean < 16.0
-        # 2. Covered by finger/hand/cloth with ambient light leaking: low contrast (std < 10.0 and mean < 45.0)
-        # 3. Completely flat uniform surface or totally blurry occlusion: std < 6.0
-        is_covered = (mean_val < 16.0) or (mean_val < 45.0 and std_val < 10.0) or (std_val < 6.0)
-        return is_covered, mean_val, std_val
+
+        # 1. Darkness / physical shutter closed
+        if mean_val < 25.0:
+            return True, mean_val, std_val
+
+        # 2. Low contrast uniform surface
+        if std_val < 10.0:
+            return True, mean_val, std_val
+
+        # 3. High-frequency edge check (a finger or thumb covering a lens causes extreme macro-blur with edge_ratio < 0.005)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        edges = cv2.Canny(gray, 35, 100)
+        edge_ratio = float(np.count_nonzero(edges)) / (h * w)
+
+        if edge_ratio < 0.005:
+            return True, mean_val, std_val
+
+        # 4. Transilluminated flesh blob (thumb pressed on lens under room light: red channel heavily dominant and std < 40 with edge_ratio < 0.012)
+        b_mean = float(np.mean(frame[:, :, 0]))
+        g_mean = float(np.mean(frame[:, :, 1]))
+        r_mean = float(np.mean(frame[:, :, 2]))
+        if (r_mean > (b_mean * 1.4) and r_mean > (g_mean * 1.2)) and edge_ratio < 0.012:
+            return True, mean_val, std_val
+
+        return False, mean_val, std_val
 
     def detect_objects_yolo(self, frame: np.ndarray, conf_threshold: float = 0.40) -> List[Dict[str, Any]]:
         """Runs YOLOv5n forward pass to detect humans (class 0: person)."""
@@ -426,8 +446,18 @@ class VisionService:
         results = []
         for face in faces:
             score = float(face[-1])
-            if score >= 0.60:
+            if score >= 0.70:
                 fx, fy, fw, fh = int(face[0]), int(face[1]), int(face[2]), int(face[3])
+                # Validate landmarks: eye distance to avoid false positives on thumb/skin wrinkles
+                re_x, re_y = face[4], face[5]
+                le_x, le_y = face[6], face[7]
+                eye_dist = np.hypot(re_x - le_x, re_y - le_y)
+
+                # A real human face sitting in front of a laptop webcam has eye distance >= 22px
+                # and face dimensions >= 50x60
+                if eye_dist < 22.0 or fw < 50 or fh < 60:
+                    continue
+
                 # Expand face bounding box to estimate upper body / person
                 px = max(0, fx - int(fw * 0.5))
                 py = max(0, fy - int(fh * 0.2))
@@ -503,7 +533,7 @@ class VisionService:
         return base64.b64encode(buffer).decode('utf-8')
 
     def step(self, occupancy: Optional[int] = None, trigger_movement: bool = False) -> Dict[str, Any]:
-        """Renders live surveillance HUD at true 30 FPS and dispatches stream snapshot/event to backend."""
+        """Renders live surveillance HUD at true 45 FPS and dispatches stream snapshot/event to backend."""
         current_time = time.time()
         source_name = f"camera_source_{self.camera_source}" if self.camera_available else "synthetic_generator"
         is_feed_blank = False
@@ -542,6 +572,9 @@ class VisionService:
                         event_type = "PERSON_DETECTED"
 
                 if is_feed_blank:
+                    final_occupancy = 0
+                    event_type = "NO_SUBJECT"
+                    bboxes = []
                     cv2.rectangle(frame, (15, 200), (625, 305), (10, 10, 30), -1)
                     cv2.rectangle(frame, (15, 200), (625, 305), (0, 0, 255), 2)
                     cv2.putText(frame, f"[!] CAMERA FEED IS BLANK / COVERED (Mean: {mean_brightness:.1f}, Std: {std_brightness:.1f})", (25, 230),
@@ -569,10 +602,10 @@ class VisionService:
                         cv2.putText(frame, label, (bx, max(18, by - 6)),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 2)
 
-                    # Surveillance OSD Header with 30 FPS indicator
+                    # Surveillance OSD Header with 45 FPS indicator
                     timestamp_str = time.strftime("%Y-%m-%d %H:%M:%S")
                     cv2.putText(frame, f"NEXUS AI SURVEILLANCE // {self.room_id.upper()}", (15, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 230, 255), 2)
-                    cv2.putText(frame, f"30 FPS LIVE STREAM // YOLOV5n + YUNET // {timestamp_str}", (15, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1)
+                    cv2.putText(frame, f"45 FPS LIVE STREAM // YOLOV5n + YUNET // {timestamp_str}", (15, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1)
 
                     # Occupancy Status Badge
                     badge_color = (0, 230, 110) if final_occupancy > 0 else (120, 120, 120)
@@ -594,7 +627,7 @@ class VisionService:
             "source": source_name,
             "resolution": f"{frame.shape[1]}x{frame.shape[0]}",
             "engine": "yolov5n_yunet_dnn_v2",
-            "fps": 30
+            "fps": 45
         }
         if is_feed_blank:
             metadata["feed_status"] = "BLANK_FEED"
@@ -644,11 +677,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NEXUS Vision Subsystem")
     parser.add_argument("--source", default=None, help="Camera index (e.g. 1) or stream URL (e.g. http://192.168.1.144:4747/video)")
     parser.add_argument("--room", default="lab_02", help="Monitored Room ID")
-    parser.add_argument("--interval", type=float, default=0.033, help="Dispatch interval in seconds (default: 0.033 = 30 FPS)")
+    parser.add_argument("--interval", type=float, default=0.022, help="Dispatch interval in seconds (default: 0.022 = 45 FPS)")
     args = parser.parse_args()
 
     service = VisionService(room_id=args.room, camera_source=args.source)
-    print(f"[NEXUS-VISION] Streaming vision frames for {args.room} at 30 FPS (Source: {service.camera_source}, Interval: {args.interval:.3f}s)...")
+    print(f"[NEXUS-VISION] Streaming vision frames for {args.room} at 45 FPS (Source: {service.camera_source}, Interval: {args.interval:.3f}s)...")
     print("Press Ctrl+C to stop.")
     try:
         target_interval = args.interval

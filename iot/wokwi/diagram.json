@@ -3,42 +3,280 @@
   "author": "NEXUS Engineering Team",
   "editor": "wokwi",
   "parts": [
-    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 0, "left": 0, "attrs": {} },
-    { "type": "wokwi-dht22", "id": "dht", "top": -120, "left": -120, "attrs": { "temperature": "24.5", "humidity": "45" } },
-    { "type": "wokwi-potentiometer", "id": "gas_pot", "top": -120, "left": 120, "attrs": { "value": "150", "label": "Gas Concentration (ppm)" } },
-    { "type": "wokwi-potentiometer", "id": "smoke_pot", "top": -120, "left": 240, "attrs": { "value": "5", "label": "Smoke Obscuration (%)" } },
-    { "type": "wokwi-pir-motion-sensor", "id": "pir", "top": 140, "left": -120, "attrs": {} },
-    { "type": "wokwi-photoresistor-sensor", "id": "ldr", "top": 140, "left": 120, "attrs": {} },
-    { "type": "wokwi-mpu6050", "id": "mpu", "top": 240, "left": 0, "attrs": {} },
-    { "type": "wokwi-led", "id": "led_alarm", "top": -60, "left": 0, "attrs": { "color": "red" } },
-    { "type": "wokwi-buzzer", "id": "buzzer", "top": -60, "left": 60, "attrs": { "hasVolume": "1" } }
+    {
+      "type": "board-esp32-devkit-c-v4",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-dht22",
+      "id": "dht",
+      "top": -120,
+      "left": -120,
+      "attrs": {
+        "temperature": "24.5",
+        "humidity": "45"
+      }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "gas_pot",
+      "top": -120,
+      "left": 120,
+      "attrs": {
+        "value": "150",
+        "label": "Gas Concentration (ppm)"
+      }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "smoke_pot",
+      "top": -120,
+      "left": 240,
+      "attrs": {
+        "value": "5",
+        "label": "Smoke Obscuration (%)"
+      }
+    },
+    {
+      "type": "wokwi-pir-motion-sensor",
+      "id": "pir",
+      "top": 140,
+      "left": -120,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-photoresistor-sensor",
+      "id": "ldr",
+      "top": 140,
+      "left": 120,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-mpu6050",
+      "id": "mpu",
+      "top": 240,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_alarm",
+      "top": -60,
+      "left": 0,
+      "attrs": {
+        "color": "red"
+      }
+    },
+    {
+      "type": "wokwi-buzzer",
+      "id": "buzzer",
+      "top": -60,
+      "left": 60,
+      "attrs": {
+        "hasVolume": "1"
+      }
+    }
   ],
   "connections": [
-    [ "esp:TX", "$serialMonitor:RX", "", [] ],
-    [ "esp:RX", "$serialMonitor:TX", "", [] ],
-    [ "esp:GND.1", "dht:GND", "black", [ "v0" ] ],
-    [ "esp:3V3", "dht:VCC", "red", [ "v0" ] ],
-    [ "esp:4", "dht:SDA", "green", [ "v0" ] ],
-    [ "esp:GND.2", "gas_pot:GND", "black", [ "v0" ] ],
-    [ "esp:3V3", "gas_pot:VCC", "red", [ "v0" ] ],
-    [ "esp:34", "gas_pot:SIG", "orange", [ "v0" ] ],
-    [ "esp:GND.2", "smoke_pot:GND", "black", [ "v0" ] ],
-    [ "esp:3V3", "smoke_pot:VCC", "red", [ "v0" ] ],
-    [ "esp:36", "smoke_pot:SIG", "gray", [ "v0" ] ],
-    [ "esp:GND.1", "pir:GND", "black", [ "v0" ] ],
-    [ "esp:3V3", "pir:VCC", "red", [ "v0" ] ],
-    [ "esp:13", "pir:OUT", "purple", [ "v0" ] ],
-    [ "esp:GND.2", "ldr:GND", "black", [ "v0" ] ],
-    [ "esp:3V3", "ldr:VCC", "red", [ "v0" ] ],
-    [ "esp:35", "ldr:AO", "yellow", [ "v0" ] ],
-    [ "esp:GND.1", "mpu:GND", "black", [ "v0" ] ],
-    [ "esp:3V3", "mpu:VCC", "red", [ "v0" ] ],
-    [ "esp:22", "mpu:SCL", "cyan", [ "v0" ] ],
-    [ "esp:21", "mpu:SDA", "blue", [ "v0" ] ],
-    [ "esp:GND.1", "led_alarm:C", "black", [ "v0" ] ],
-    [ "esp:2", "led_alarm:A", "red", [ "v0" ] ],
-    [ "esp:GND.2", "buzzer:1", "black", [ "v0" ] ],
-    [ "esp:15", "buzzer:2", "red", [ "v0" ] ]
+    [
+      "esp:TX",
+      "$serialMonitor:RX",
+      "",
+      []
+    ],
+    [
+      "esp:RX",
+      "$serialMonitor:TX",
+      "",
+      []
+    ],
+    [
+      "esp:GND.1",
+      "dht:GND",
+      "black",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:3V3",
+      "dht:VCC",
+      "red",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:4",
+      "dht:SDA",
+      "green",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:GND.2",
+      "gas_pot:GND",
+      "black",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:3V3",
+      "gas_pot:VCC",
+      "red",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:34",
+      "gas_pot:SIG",
+      "orange",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:GND.2",
+      "smoke_pot:GND",
+      "black",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:3V3",
+      "smoke_pot:VCC",
+      "red",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:36",
+      "smoke_pot:SIG",
+      "gray",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:GND.1",
+      "pir:GND",
+      "black",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:3V3",
+      "pir:VCC",
+      "red",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:13",
+      "pir:OUT",
+      "purple",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:GND.2",
+      "ldr:GND",
+      "black",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:3V3",
+      "ldr:VCC",
+      "red",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:35",
+      "ldr:AO",
+      "yellow",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:GND.1",
+      "mpu:GND",
+      "black",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:3V3",
+      "mpu:VCC",
+      "red",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:22",
+      "mpu:SCL",
+      "cyan",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:21",
+      "mpu:SDA",
+      "blue",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:GND.1",
+      "led_alarm:C",
+      "black",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:2",
+      "led_alarm:A",
+      "red",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:GND.2",
+      "buzzer:1",
+      "black",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:15",
+      "buzzer:2",
+      "red",
+      [
+        "v0"
+      ]
+    ]
   ],
   "dependencies": {}
 }

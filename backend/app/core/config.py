@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-3.6-flash"
     
     # Network & CORS
-    BACKEND_HOST: str = "127.0.0.1"
+    BACKEND_HOST: str = "0.0.0.0"
     BACKEND_PORT: int = 8000
     FRONTEND_URL: str = "http://localhost:3000"
     

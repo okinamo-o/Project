@@ -6,7 +6,29 @@ import subprocess
 import sys
 import os
 
-bg_processes = []
+import asyncio
+
+MANAGED_SERVICES = [
+    {"name": "iot_generator", "cmd": [sys.executable, "iot/emulator/telemetry_generator.py"]},
+    {"name": "vision_service", "cmd": [sys.executable, "ai/vision/vision_service.py", "--interval", "0.022"]},
+    {"name": "audio_service", "cmd": [sys.executable, "ai/audio/audio_service.py"]},
+    {"name": "wokwi_bridge", "cmd": [sys.executable, "iot/bridge/wokwi_bridge.py"]},
+]
+
+async def process_watchdog(project_root: str):
+    """Resilient supervisor: keeps background IoT, Vision, and Audio services alive."""
+    while True:
+        await asyncio.sleep(3.0)
+        for svc in MANAGED_SERVICES:
+            proc = svc.get("proc")
+            if proc is None or proc.poll() is not None:
+                code = proc.returncode if proc else "None"
+                logger.warning(f"[SUPERVISOR] Service '{svc['name']}' not running (exit code: {code}). Restarting...")
+                try:
+                    svc["proc"] = subprocess.Popen(svc["cmd"], cwd=project_root)
+                    logger.info(f"[SUPERVISOR] Spawned '{svc['name']}' (PID {svc['proc'].pid})")
+                except Exception as ex:
+                    logger.error(f"[SUPERVISOR] Failed to restart '{svc['name']}': {ex}")
 
 from backend.app.core.config import settings
 from backend.app.core.events import event_manager
@@ -39,25 +61,30 @@ async def lifespan(app: FastAPI):
     
     logger.info("[NEXUS] Systems initialized. Listening for real-time telemetry.")
 
-    # --- AUTO-START SENSORS ---
+    # --- AUTO-START SENSORS WITH RESILIENT WATCHDOG ---
+    watchdog_task = None
     if os.environ.get("TESTING") != "1":
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
-        try:
-            bg_processes.append(subprocess.Popen([sys.executable, "iot/emulator/telemetry_generator.py"], cwd=project_root))
-            bg_processes.append(subprocess.Popen([sys.executable, "ai/vision/vision_service.py", "--interval", "0.033"], cwd=project_root))
-            bg_processes.append(subprocess.Popen([sys.executable, "ai/audio/audio_service.py"], cwd=project_root))
-            logger.info("[NEXUS] Background data generators started automatically.")
-        except Exception as e:
-            logger.error(f"[NEXUS] Could not start background generators: {e}")
-    # --------------------------
+        for svc in MANAGED_SERVICES:
+            try:
+                svc["proc"] = subprocess.Popen(svc["cmd"], cwd=project_root)
+                logger.info(f"[NEXUS] Started '{svc['name']}' (PID {svc['proc'].pid})")
+            except Exception as e:
+                logger.error(f"[NEXUS] Could not start '{svc['name']}': {e}")
+        watchdog_task = asyncio.create_task(process_watchdog(project_root))
+    # --------------------------------------------------
 
     yield
     logger.info("[NEXUS] Shutting down services.")
-    for p in bg_processes:
-        try:
-            p.terminate()
-        except:
-            pass
+    if watchdog_task:
+        watchdog_task.cancel()
+    for svc in MANAGED_SERVICES:
+        p = svc.get("proc")
+        if p and p.poll() is None:
+            try:
+                p.terminate()
+            except Exception:
+                pass
     await engine.dispose()
 
 app = FastAPI(
@@ -112,7 +139,7 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
         "backend.app.main:app",
-        host=settings.BACKEND_HOST,
+        host="0.0.0.0",
         port=settings.BACKEND_PORT,
         reload=False
     )
