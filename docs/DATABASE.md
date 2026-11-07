@@ -55,7 +55,7 @@ NEXUS uses **SQLAlchemy 2.0 Async ORM** supporting dual backends:
 * `id` (INTEGER, PK, Auto-increment)
 * `device_id` (VARCHAR 64, FK -> `devices.id`)
 * `timestamp` (DATETIME, Indexed)
-* `sensor_type` (VARCHAR 64): `temperature`, `humidity`, `gas`, `motion`, `light`, `vibration`
+* `sensor_type` (VARCHAR 64): `temperature`, `humidity`, `gas`, `motion`, `light`
 * `value` (FLOAT)
 * `unit` (VARCHAR 16)
 * `quality` (VARCHAR 32)

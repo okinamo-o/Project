@@ -21,7 +21,7 @@ NEXUS is an educational, local-first multimodal software system that creates an 
                 ┌────────────────────────┐
                 │      WOKWI ESP32       │
                 │  Temp, Gas, Motion,    │
-                │  Light, Vibration IMU  │
+                │  Light, Humidity       │
                 └───────────┬────────────┘
                             │ HTTP / WebSocket / MQTT
                             ▼
@@ -66,7 +66,7 @@ NEXUS is an educational, local-first multimodal software system that creates an 
 ## Subsystem Capabilities
 
 1. **3D Digital Twin (Three.js)**: Isometric 2-floor 3D building featuring 9 monitored zones (Main Hall, Classrooms 01 & 02, Labs 01 & 02, Server Room, Chemical Storage, Entrance, Emergency Exit). Rooms react dynamically to state (`NORMAL`, `ATTENTION`, `ANOMALY`, `INCIDENT`, `OFFLINE`) with neon glow shaders and pulsing beacons.
-2. **IoT & Embedded Firmware (ESP32 / Wokwi)**: 6-channel sensor node with DHT22 (temp/humidity), MQ-2 gas, PIR motion, photoresistor, and MPU6050 vibration. Supports Wokwi simulation and physical hardware.
+2. **IoT & Embedded Firmware (ESP32 / Wokwi)**: 5-channel sensor node with DHT22 (temp/humidity), MQ-2 gas, PIR motion, and photoresistor. Supports Wokwi simulation and physical hardware.
 3. **Machine Learning Anomaly Detection**: Unsupervised `IsolationForest` pipeline trained on multivariate environmental dynamics, capturing rates of change and cross-sensor correlations with 93.6% accuracy.
 4. **Predictive Modeling**: Short-term least-squares trend forecaster calculating instantaneous rates of change (°C/min) and estimating values across +1m, +5m, and +15m horizons with 95% uncertainty intervals.
 5. **Edge-First Computer Vision**: Local OpenCV/YOLO pipeline extracting occupancy counts, human presence, and sudden movement vectors. Features dual-mode operation: physical DirectShow webcam capture or real-time synthetic surveillance rendering.

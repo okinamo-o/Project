@@ -18,7 +18,6 @@ export interface RoomTelemetrySnapshot {
   gas: number;
   smoke: number;
   occupancy: number;
-  vibration: number;
 }
 
 interface Building3DProps {
@@ -84,14 +83,22 @@ export default function Building3D({
   useEffect(() => { themeRef.current = theme; }, [theme]);
   useEffect(() => { onSelectRoomRef.current = onSelectRoom; }, [onSelectRoom]);
 
+  const getDefaultRadius = () => {
+    const w = mountRef.current?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 800);
+    return w < 520 ? 36 : 32;
+  };
+
   const sphericalTargetRef = useRef({ theta: 0.65, phi: 1.04, radius: 32 });
   const sphericalCurrentRef = useRef({ theta: 0.65, phi: 1.04, radius: 32 });
+  const lastInteractionRef = useRef<number>(0);
 
   const handleResetCamera = () => {
+    const baseR = getDefaultRadius();
+    lastInteractionRef.current = 0;
     sphericalTargetRef.current = {
       theta: 0.65,
       phi: 1.04,
-      radius: splitFloors ? 36 : 32,
+      radius: splitFloors ? baseR + 4 : baseR,
     };
   };
 
@@ -99,22 +106,28 @@ export default function Building3D({
     const mount = mountRef.current;
     if (!mount) return;
 
-    const width = mount.clientWidth || 800;
-    const height = mount.clientHeight || 460;
+    const width = Math.max(mount.clientWidth || 340, 280);
+    const height = Math.max(mount.clientHeight || 300, 240);
+    const isMobileInit = width < 520;
+    const initRadius = isMobileInit ? 36 : 32;
+    sphericalTargetRef.current.radius = initRadius;
+    sphericalCurrentRef.current.radius = initRadius;
 
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(38, width / height, 0.1, 1000);
+    const camera = new THREE.PerspectiveCamera(isMobileInit ? 44 : 38, width / height, 0.1, 1000);
 
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: true,
-      powerPreference: 'high-performance',
+      powerPreference: 'default',
     });
     renderer.setSize(width, height);
     renderer.setClearColor(0x000000, 0);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.shadowMap.enabled = !isMobileInit;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.domElement.style.touchAction = 'none';
+    renderer.domElement.style.display = 'block';
     mount.appendChild(renderer.domElement);
 
     // Clean Architectural Studio Lighting
@@ -254,6 +267,7 @@ export default function Building3D({
 
     const onPointerDown = (e: MouseEvent) => {
       isDragging = true;
+      lastInteractionRef.current = Date.now();
       downX = e.clientX;
       downY = e.clientY;
       prevX = e.clientX;
@@ -263,6 +277,7 @@ export default function Building3D({
     const onPointerMove = (e: MouseEvent) => {
       const rect = renderer.domElement.getBoundingClientRect();
       if (isDragging) {
+        lastInteractionRef.current = Date.now();
         const dx = e.clientX - prevX;
         const dy = e.clientY - prevY;
         prevX = e.clientX;
@@ -293,6 +308,7 @@ export default function Building3D({
     const onPointerUp = (e: MouseEvent) => {
       if (!isDragging) return;
       isDragging = false;
+      lastInteractionRef.current = Date.now();
       const dist = Math.hypot(e.clientX - downX, e.clientY - downY);
       if (dist < 6) {
         const rect = renderer.domElement.getBoundingClientRect();
@@ -309,16 +325,91 @@ export default function Building3D({
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      lastInteractionRef.current = Date.now();
       sphericalTargetRef.current.radius = Math.max(
         18,
-        Math.min(48, sphericalTargetRef.current.radius + e.deltaY * 0.02)
+        Math.min(54, sphericalTargetRef.current.radius + e.deltaY * 0.02)
       );
+    };
+
+    // Mobile Touch Orbit, Pinch Zoom & Tap Room Selection
+    let touchDragging = false;
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchPrevX = 0;
+    let touchPrevY = 0;
+    let pinchStartDist = 0;
+    let pinchStartRadius = 32;
+
+    const onTouchStart = (e: TouchEvent) => {
+      lastInteractionRef.current = Date.now();
+      if (e.touches.length === 1) {
+        touchDragging = true;
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+        touchPrevX = touchStartX;
+        touchPrevY = touchStartY;
+      } else if (e.touches.length === 2) {
+        touchDragging = false;
+        pinchStartDist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        pinchStartRadius = sphericalTargetRef.current.radius;
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      lastInteractionRef.current = Date.now();
+      if (e.touches.length === 1 && touchDragging) {
+        if (e.cancelable) e.preventDefault();
+        const dx = e.touches[0].clientX - touchPrevX;
+        const dy = e.touches[0].clientY - touchPrevY;
+        touchPrevX = e.touches[0].clientX;
+        touchPrevY = e.touches[0].clientY;
+        sphericalTargetRef.current.theta -= dx * 0.009;
+        sphericalTargetRef.current.phi = Math.max(
+          0.25,
+          Math.min(Math.PI / 2 - 0.08, sphericalTargetRef.current.phi - dy * 0.007)
+        );
+      } else if (e.touches.length === 2 && pinchStartDist > 0) {
+        if (e.cancelable) e.preventDefault();
+        const curDist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        const scale = pinchStartDist / Math.max(20, curDist);
+        sphericalTargetRef.current.radius = Math.max(18, Math.min(54, pinchStartRadius * scale));
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      lastInteractionRef.current = Date.now();
+      if (touchDragging && e.changedTouches.length === 1) {
+        const endX = e.changedTouches[0].clientX;
+        const endY = e.changedTouches[0].clientY;
+        const dist = Math.hypot(endX - touchStartX, endY - touchStartY);
+        if (dist < 12) {
+          const rect = renderer.domElement.getBoundingClientRect();
+          mouse.x = ((endX - rect.left) / rect.width) * 2 - 1;
+          mouse.y = -((endY - rect.top) / rect.height) * 2 + 1;
+          raycaster.setFromCamera(mouse, camera);
+          const hits = raycaster.intersectObjects(interactiveMeshes);
+          if (hits.length > 0) {
+            onSelectRoomRef.current(hits[0].object.userData.roomId);
+          }
+        }
+      }
+      touchDragging = false;
     };
 
     mount.addEventListener('mousedown', onPointerDown);
     window.addEventListener('mousemove', onPointerMove);
     window.addEventListener('mouseup', onPointerUp);
     mount.addEventListener('wheel', onWheel, { passive: false });
+    mount.addEventListener('touchstart', onTouchStart, { passive: true });
+    mount.addEventListener('touchmove', onTouchMove, { passive: false });
+    mount.addEventListener('touchend', onTouchEnd, { passive: true });
 
     let animationFrameId: number;
     const clock = new THREE.Clock();
@@ -338,6 +429,11 @@ export default function Building3D({
       // Smoothly lift Floor 2 when Split View is active
       const targetOffset = isSplit ? 4.8 : 0;
       slabGroup.position.y += (targetOffset - slabGroup.position.y) * 0.1;
+
+      // Gentle 3D turntable orbit animation when idle (pauses during user drag/touch and for 3.5s after)
+      if (!isDragging && !touchDragging && Date.now() - lastInteractionRef.current > 3500) {
+        sphericalTargetRef.current.theta += 0.0022;
+      }
 
       // Smooth Camera Orbit
       sphericalCurrentRef.current.theta += (sphericalTargetRef.current.theta - sphericalCurrentRef.current.theta) * 0.08;
@@ -440,19 +536,29 @@ export default function Building3D({
       const w = mount.clientWidth;
       const h = mount.clientHeight;
       if (w === 0 || h === 0) return;
+      camera.fov = w < 520 ? 44 : 38;
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
     };
 
     window.addEventListener('resize', handleResize);
+    let resizeObs: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObs = new ResizeObserver(() => handleResize());
+      resizeObs.observe(mount);
+    }
 
     return () => {
       cancelAnimationFrame(animationFrameId);
+      if (resizeObs) resizeObs.disconnect();
       mount.removeEventListener('mousedown', onPointerDown);
       window.removeEventListener('mousemove', onPointerMove);
       window.removeEventListener('mouseup', onPointerUp);
       mount.removeEventListener('wheel', onWheel);
+      mount.removeEventListener('touchstart', onTouchStart);
+      mount.removeEventListener('touchmove', onTouchMove);
+      mount.removeEventListener('touchend', onTouchEnd);
       window.removeEventListener('resize', handleResize);
       if (mount.contains(renderer.domElement)) {
         mount.removeChild(renderer.domElement);
@@ -465,13 +571,13 @@ export default function Building3D({
 
   return (
     <div
-      className={`relative w-full h-full min-h-[400px] rounded-2xl overflow-hidden select-none transition-colors ${
+      className={`relative w-full h-full min-h-[260px] sm:min-h-[400px] rounded-2xl overflow-hidden select-none transition-colors ${
         theme === 'daylight'
           ? 'bg-gradient-to-b from-slate-100 to-slate-200/70 border border-slate-200/80'
           : 'bg-gradient-to-b from-[#131923] to-[#0d1219] border border-white/10'
       }`}
     >
-      <div ref={mountRef} className="w-full h-full cursor-grab" />
+      <div ref={mountRef} className="w-full h-full cursor-grab touch-none" style={{ touchAction: 'none' }} />
 
       {/* Minimal Floating Badges — ONLY shown on Selected, Hovered, or Active Alert Rooms */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden z-10">
@@ -493,7 +599,7 @@ export default function Building3D({
               style={{ opacity: 0, willChange: 'transform' }}
             >
               <div
-                className={`px-3 py-1.5 rounded-full shadow-lg flex items-center gap-2 text-xs font-medium backdrop-blur-md border transition ${
+                className={`px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full shadow-lg flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs font-medium backdrop-blur-md border transition ${
                   isIncident
                     ? 'bg-red-600 text-white border-red-400 animate-bounce'
                     : isSelected
@@ -502,13 +608,13 @@ export default function Building3D({
                 }`}
               >
                 <span
-                  className={`h-2 w-2 rounded-full ${
+                  className={`h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full ${
                     isIncident ? 'bg-white animate-ping' : 'bg-emerald-300'
                   }`}
                 />
                 <span className="font-semibold whitespace-nowrap">{cfg.name}</span>
                 {telem && (
-                  <span className="opacity-90 tnum font-mono text-[11px]">
+                  <span className="opacity-90 tnum font-mono text-[10px] sm:text-[11px]">
                     {telem.temperature.toFixed(1)}°C
                   </span>
                 )}
@@ -520,16 +626,16 @@ export default function Building3D({
 
       {/* Top-Left: Clean Selected Room Pill */}
       {selectedRoomObj && (
-        <div className="absolute top-4 left-4 z-20 pointer-events-none">
+        <div className="absolute top-2.5 left-2.5 sm:top-4 sm:left-4 z-20 pointer-events-none max-w-[48%] sm:max-w-none">
           <div
-            className={`px-3.5 py-2 rounded-xl backdrop-blur-md border shadow-sm flex items-center gap-2.5 text-xs ${
+            className={`px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-xl backdrop-blur-md border shadow-sm flex items-center gap-1.5 sm:gap-2.5 text-[11px] sm:text-xs truncate ${
               theme === 'daylight'
                 ? 'bg-white/90 border-slate-200/90 text-slate-800'
                 : 'bg-slate-900/85 border-white/10 text-slate-100'
             }`}
           >
             <span
-              className={`h-2.5 w-2.5 rounded-full ${
+              className={`h-2 w-2 sm:h-2.5 sm:w-2.5 rounded-full shrink-0 ${
                 selectedRoomObj.state === 'INCIDENT'
                   ? 'bg-red-500 animate-ping'
                   : selectedRoomObj.state === 'ANOMALY' || selectedRoomObj.state === 'ATTENTION'
@@ -537,17 +643,17 @@ export default function Building3D({
                   : 'bg-emerald-500'
               }`}
             />
-            <span className="font-semibold">{selectedRoomObj.name}</span>
-            <span className="opacity-50">•</span>
-            <span className="opacity-75">Floor {selectedRoomObj.floor}</span>
+            <span className="font-semibold truncate">{selectedRoomObj.name}</span>
+            <span className="opacity-50 hidden sm:inline">•</span>
+            <span className="opacity-75 hidden sm:inline">Floor {selectedRoomObj.floor}</span>
           </div>
         </div>
       )}
 
       {/* Top-Right: Simple Floor & Split Controls */}
-      <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
+      <div className="absolute top-2.5 right-2.5 sm:top-4 sm:right-4 z-20 flex items-center gap-1.5 sm:gap-2">
         <div
-          className={`flex items-center p-1 rounded-xl backdrop-blur-md border shadow-sm text-xs font-medium ${
+          className={`flex items-center p-0.5 sm:p-1 rounded-xl backdrop-blur-md border shadow-sm text-[11px] sm:text-xs font-medium ${
             theme === 'daylight'
               ? 'bg-white/90 border-slate-200/90 text-slate-600'
               : 'bg-slate-900/85 border-white/10 text-slate-300'
@@ -558,13 +664,14 @@ export default function Building3D({
               key={String(fl)}
               type="button"
               onClick={() => setFloorFilter(fl)}
-              className={`px-2.5 py-1 rounded-lg transition ${
+              className={`px-2 py-1 sm:px-2.5 sm:py-1 rounded-lg transition ${
                 floorFilter === fl
                   ? 'bg-blue-600 text-white font-semibold shadow-sm'
                   : 'hover:opacity-80'
               }`}
             >
-              {fl === 'all' ? 'All Floors' : `Floor ${fl}`}
+              <span className="sm:hidden">{fl === 'all' ? 'All' : `F${fl}`}</span>
+              <span className="hidden sm:inline">{fl === 'all' ? 'All Floors' : `Floor ${fl}`}</span>
             </button>
           ))}
         </div>
@@ -572,7 +679,7 @@ export default function Building3D({
         <button
           type="button"
           onClick={() => setSplitFloors(!splitFloors)}
-          className={`px-3 py-1.5 rounded-xl backdrop-blur-md border shadow-sm text-xs font-medium flex items-center gap-1.5 transition ${
+          className={`p-1.5 sm:px-3 sm:py-1.5 rounded-xl backdrop-blur-md border shadow-sm text-xs font-medium flex items-center gap-1.5 transition ${
             splitFloors
               ? 'bg-blue-600 text-white border-blue-500'
               : theme === 'daylight'
@@ -588,7 +695,7 @@ export default function Building3D({
         <button
           type="button"
           onClick={handleResetCamera}
-          className={`p-2 rounded-xl backdrop-blur-md border shadow-sm transition ${
+          className={`p-1.5 sm:p-2 rounded-xl backdrop-blur-md border shadow-sm transition ${
             theme === 'daylight'
               ? 'bg-white/90 border-slate-200/90 text-slate-700 hover:bg-white'
               : 'bg-slate-900/85 border-white/10 text-slate-200 hover:bg-slate-800'
@@ -600,25 +707,25 @@ export default function Building3D({
       </div>
 
       {/* Bottom Legend & Help Hint */}
-      <div className="absolute bottom-3 left-4 right-4 z-20 pointer-events-none flex items-center justify-between text-[11px]">
+      <div className="absolute bottom-2.5 left-2.5 right-2.5 sm:bottom-3 sm:left-4 sm:right-4 z-20 pointer-events-none flex items-center justify-between text-[10px] sm:text-[11px]">
         <div
-          className={`px-3 py-1.5 rounded-lg backdrop-blur-md border flex items-center gap-3 ${
+          className={`px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg backdrop-blur-md border flex items-center gap-2 sm:gap-3 ${
             theme === 'daylight'
               ? 'bg-white/85 border-slate-200/80 text-slate-600'
               : 'bg-slate-900/80 border-white/10 text-slate-300'
           }`}
         >
-          <span className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" /> Normal
+          <span className="flex items-center gap-1">
+            <span className="h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-emerald-500" /> Normal
           </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-amber-500" /> Warning
+          <span className="flex items-center gap-1">
+            <span className="h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-amber-500" /> Warning
           </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-red-500" /> Alert
+          <span className="flex items-center gap-1">
+            <span className="h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-red-500" /> Alert
           </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-blue-600" /> Selected
+          <span className="flex items-center gap-1">
+            <span className="h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-blue-600" /> Selected
           </span>
         </div>
 

@@ -263,7 +263,7 @@ class AudioService:
         # a) Minimum energy: SNR >= 1.5 above ambient floor (captures normal speaking volume)
         # b) Vocal formant energy ratio: vocal_ratio >= 0.28
         # c) Spectral centroid within conversational voice band (250Hz - 3400Hz)
-        # d) Harmonic vocal fold vibration: pitch_r_max >= 0.16 (detects voiced syllables)
+        # d) Harmonic vocal fold oscillation: pitch_r_max >= 0.16 (detects voiced syllables)
         # e) Human voice frequency span: 100Hz - 2800Hz (accommodates male/female pitch and formants)
         is_speech_energy = (rms >= max(0.0030, self.noise_floor * 1.5))
         is_speech_spectrum = (250.0 <= sc <= 3400.0)

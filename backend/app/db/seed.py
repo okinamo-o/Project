@@ -52,7 +52,7 @@ DEFAULT_ROOMS = [
         "floor": 2,
         "type": "lab",
         "coordinates": {"x": 9, "y": 4.5, "z": -8, "w": 8, "h": 3.5, "d": 7},
-        "metadata": {"capacity": 25, "security_level": "high", "sensors": ["temp", "gas", "motion", "vibration", "camera", "audio"]}
+        "metadata": {"capacity": 25, "security_level": "high", "sensors": ["temp", "gas", "motion", "camera", "audio"]}
     },
     {
         "id": "server_room",
@@ -60,7 +60,7 @@ DEFAULT_ROOMS = [
         "floor": 1,
         "type": "server_room",
         "coordinates": {"x": -9, "y": 0, "z": 0, "w": 6, "h": 3.5, "d": 5},
-        "metadata": {"capacity": 4, "security_level": "critical", "sensors": ["temp", "humidity", "vibration", "airflow"]}
+        "metadata": {"capacity": 4, "security_level": "critical", "sensors": ["temp", "humidity", "airflow"]}
     },
     {
         "id": "storage_room",

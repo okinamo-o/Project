@@ -50,8 +50,7 @@ def run_nexus_official_demo(auto=False):
                 {"sensor_type": "temperature", "value": 23.5, "unit": "C"},
                 {"sensor_type": "humidity", "value": 45.0, "unit": "%"},
                 {"sensor_type": "gas", "value": 75.0, "unit": "ppm"},
-                {"sensor_type": "motion", "value": 0, "unit": "state"},
-                {"sensor_type": "vibration", "value": 0.035, "unit": "g"}
+                {"sensor_type": "motion", "value": 0, "unit": "state"}
             ]
         })
         print("✓ All 9 zones verified NORMAL. Lab 02 baseline: Temp 23.5°C, Gas 75 ppm, Occupancy 0.")

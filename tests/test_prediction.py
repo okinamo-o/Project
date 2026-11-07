@@ -9,11 +9,9 @@ def test_anomaly_detector_scoring():
         "temperature": 23.0,
         "humidity": 45.0,
         "gas": 70.0,
-        "vibration": 0.03,
         "motion": 0,
         "temp_rate_of_change": 0.0,
-        "gas_rate_of_change": 0.0,
-        "vibration_variance": 0.0001
+        "gas_rate_of_change": 0.0
     }
     is_anomaly, score, details = anomaly_detector.score_telemetry(normal_features)
     assert score < 0.60, f"Normal reading scored too high: {score}"
@@ -23,11 +21,9 @@ def test_anomaly_detector_scoring():
         "temperature": 48.5,
         "humidity": 30.0,
         "gas": 480.0,
-        "vibration": 0.25,
         "motion": 1,
         "temp_rate_of_change": 3.5,
-        "gas_rate_of_change": 45.0,
-        "vibration_variance": 0.05
+        "gas_rate_of_change": 45.0
     }
     is_anomaly, score, details = anomaly_detector.score_telemetry(hazard_features)
     assert is_anomaly is True

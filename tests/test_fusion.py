@@ -107,3 +107,58 @@ async def test_smoke_detector_structural_fire_fusion():
         assert smoke_ev is not None
         assert smoke_ev["source_type"] == "SENSOR"
         assert "Optical smoke obscuration" in smoke_ev["explanation"]
+
+
+@pytest.mark.asyncio
+async def test_ldr_lux_calibration_and_fire_clearing_when_dark():
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        # 1. High Temp (41.6°C) + Smoke (8.9%) + High Lux (850 lux, calibrated) -> triggers STRUCTURAL_FIRE_CONFLAGRATION
+        res_fire = await client.post("/api/sensors/batch", json={
+            "device_id": "esp32_classroom01",
+            "room_id": "classroom_01",
+            "readings": [
+                {"sensor_type": "temperature", "value": 41.6, "unit": "C"},
+                {"sensor_type": "humidity", "value": 35.0, "unit": "%"},
+                {"sensor_type": "gas", "value": 85.0, "unit": "ppm"},
+                {"sensor_type": "smoke", "value": 8.9, "unit": "%"},
+                {"sensor_type": "light", "value": 850.0, "unit": "lux", "calibrated": True},
+                {"sensor_type": "motion", "value": 0, "unit": "state"},
+            ]
+        })
+        assert res_fire.status_code == 200
+        assert res_fire.json()["hazard_detected"] is True
+        assert res_fire.json()["incident_type"] == "STRUCTURAL_FIRE_CONFLAGRATION"
+
+        # 2. Change Lux to 20 lux (dark) while keeping High Temp (41.6°C) + Smoke (8.9%)
+        #    ML should conclude NO fire hazard detected and resolve the active fire incident!
+        res_dark = await client.post("/api/sensors/batch", json={
+            "device_id": "esp32_classroom01",
+            "room_id": "classroom_01",
+            "readings": [
+                {"sensor_type": "temperature", "value": 41.6, "unit": "C"},
+                {"sensor_type": "humidity", "value": 35.0, "unit": "%"},
+                {"sensor_type": "gas", "value": 85.0, "unit": "ppm"},
+                {"sensor_type": "smoke", "value": 8.9, "unit": "%"},
+                {"sensor_type": "light", "value": 20.0, "unit": "lux", "calibrated": True},
+                {"sensor_type": "motion", "value": 0, "unit": "state"},
+            ]
+        })
+        assert res_dark.status_code == 200
+        assert res_dark.json()["hazard_detected"] is False
+
+        room_res = await client.get("/api/rooms/classroom_01")
+        assert room_res.status_code == 200
+        assert room_res.json()["state"] == "NORMAL"
+
+        # 3. Verify legacy uncalibrated 756 lux (Wokwi 500 lux slider) auto-calibrates to 500 lux
+        await client.post("/api/sensors/batch", json={
+            "device_id": "esp32_classroom01",
+            "room_id": "classroom_01",
+            "readings": [
+                {"sensor_type": "light", "value": 756.0, "unit": "lux"},
+            ]
+        })
+        latest_res = await client.get("/api/sensors/room/classroom_01/latest")
+        assert latest_res.status_code == 200
+        assert latest_res.json()["readings"]["light"]["value"] == 500.0
+

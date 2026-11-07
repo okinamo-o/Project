@@ -1,0 +1,16 @@
+search-path = [
+    ".",
+    "backend",
+    "backend/venv/Lib/site-packages",
+    "iot/bridge"
+]
+ignore-missing-imports = [
+    "httpx",
+    "httpx.*",
+    "paho",
+    "paho.*"
+]
+
+[errors]
+missing-import = "ignore"
+

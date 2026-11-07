@@ -22,8 +22,6 @@ ROOM_PROFILES: Dict[str, Dict[str, Any]] = {
         "gas_var": 3.0,
         "smoke_base": 0.1,
         "smoke_var": 0.05,
-        "vibration_base": 0.075,
-        "vibration_var": 0.006,
         "motion_prob": 0.02,
         "light_base": 150
     },
@@ -34,12 +32,10 @@ ROOM_PROFILES: Dict[str, Dict[str, Any]] = {
         "temp_var": 0.5,
         "humidity_base": 48.0,
         "humidity_var": 1.5,
-        "gas_base": 240.0,
-        "gas_var": 15.0,
+        "gas_base": 85.0,
+        "gas_var": 5.0,
         "smoke_base": 0.3,
         "smoke_var": 0.1,
-        "vibration_base": 0.015,
-        "vibration_var": 0.003,
         "motion_prob": 0.75,
         "light_base": 450
     },
@@ -50,12 +46,10 @@ ROOM_PROFILES: Dict[str, Dict[str, Any]] = {
         "temp_var": 0.5,
         "humidity_base": 47.0,
         "humidity_var": 1.5,
-        "gas_base": 260.0,
-        "gas_var": 18.0,
+        "gas_base": 90.0,
+        "gas_var": 5.0,
         "smoke_base": 0.3,
         "smoke_var": 0.1,
-        "vibration_base": 0.018,
-        "vibration_var": 0.003,
         "motion_prob": 0.70,
         "light_base": 480
     },
@@ -70,8 +64,6 @@ ROOM_PROFILES: Dict[str, Dict[str, Any]] = {
         "gas_var": 6.0,
         "smoke_base": 0.2,
         "smoke_var": 0.08,
-        "vibration_base": 0.020,
-        "vibration_var": 0.004,
         "motion_prob": 0.60,
         "light_base": 520
     },
@@ -86,8 +78,6 @@ ROOM_PROFILES: Dict[str, Dict[str, Any]] = {
         "gas_var": 8.0,
         "smoke_base": 0.4,
         "smoke_var": 0.15,
-        "vibration_base": 0.035,
-        "vibration_var": 0.005,
         "motion_prob": 0.40,
         "light_base": 500
     },
@@ -98,12 +88,10 @@ ROOM_PROFILES: Dict[str, Dict[str, Any]] = {
         "temp_var": 0.3,
         "humidity_base": 40.0,
         "humidity_var": 1.0,
-        "gas_base": 125.0,
-        "gas_var": 10.0,
+        "gas_base": 95.0,
+        "gas_var": 5.0,
         "smoke_base": 0.5,
         "smoke_var": 0.2,
-        "vibration_base": 0.012,
-        "vibration_var": 0.002,
         "motion_prob": 0.02,
         "light_base": 80
     },
@@ -114,12 +102,10 @@ ROOM_PROFILES: Dict[str, Dict[str, Any]] = {
         "temp_var": 0.7,
         "humidity_base": 50.0,
         "humidity_var": 2.0,
-        "gas_base": 180.0,
-        "gas_var": 12.0,
+        "gas_base": 85.0,
+        "gas_var": 5.0,
         "smoke_base": 0.3,
         "smoke_var": 0.1,
-        "vibration_base": 0.028,
-        "vibration_var": 0.006,
         "motion_prob": 0.85,
         "light_base": 650
     },
@@ -130,12 +116,10 @@ ROOM_PROFILES: Dict[str, Dict[str, Any]] = {
         "temp_var": 0.8,
         "humidity_base": 52.0,
         "humidity_var": 2.0,
-        "gas_base": 160.0,
-        "gas_var": 12.0,
+        "gas_base": 75.0,
+        "gas_var": 5.0,
         "smoke_base": 0.2,
         "smoke_var": 0.08,
-        "vibration_base": 0.024,
-        "vibration_var": 0.005,
         "motion_prob": 0.90,
         "light_base": 700
     },
@@ -150,37 +134,48 @@ ROOM_PROFILES: Dict[str, Dict[str, Any]] = {
         "gas_var": 5.0,
         "smoke_base": 0.1,
         "smoke_var": 0.05,
-        "vibration_base": 0.010,
-        "vibration_var": 0.002,
         "motion_prob": 0.05,
         "light_base": 200
     }
 }
 
+# Rooms that have a dedicated Wokwi ESP32 simulation (live device IDs: esp32_lab02 / esp32_classroom01)
+WOKWI_ROOMS = ("lab_02", "classroom_01")
 
-def get_wokwi_overrides() -> Dict[str, float]:
+def get_wokwi_overrides(room_id: str = "lab_02") -> Dict[str, float]:
     """
-    Dynamically inspects Wokwi schematic files (diagram.json / diagram.jason)
+    Dynamically inspects Wokwi schematic files (diagram.json) for either lab_02 or classroom_01
     and extracts interactive sensor attributes (DHT22, gas pot, smoke pot, etc.).
     """
-    possible_paths = [
-        "iot/wokwi/diagram.json",
-        "wokwi/diagram.json",
-        "diagram.json",
-        "iot/wokwi/diagram.jason",
-        "wokwi/diagram.jason",
-        "diagram.jason"
-    ]
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(base_dir, "../.."))
+    if room_id == "classroom_01":
+        possible_paths = [
+            os.path.join(project_root, "iot", "wokwi", "classroom_01", "diagram.json"),
+        ]
+    else:
+        possible_paths = [
+            os.path.join(project_root, "iot", "wokwi", "diagram.json"),
+            os.path.join(project_root, "iot", "wokwi", "lab_02", "diagram.json"),
+            os.path.join(project_root, "wokwi", "diagram.json"),
+            os.path.join(project_root, "diagram.json"),
+            "iot/wokwi/diagram.json",
+            "wokwi/diagram.json",
+            "diagram.json",
+            "iot/wokwi/diagram.jason",
+            "wokwi/diagram.jason",
+            "diagram.jason"
+        ]
     overrides: Dict[str, float] = {}
     for path in possible_paths:
         if not os.path.exists(path):
             continue
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8-sig") as f:
                 data = json.load(f)
             for part in data.get("parts", []):
-                pid = part.get("id", "")
-                ptype = part.get("type", "")
+                pid = str(part.get("id", "")).lower()
+                ptype = str(part.get("type", "")).lower()
                 attrs = part.get("attrs", {})
                 if pid == "dht" or ptype == "wokwi-dht22":
                     if "temperature" in attrs:
@@ -189,15 +184,17 @@ def get_wokwi_overrides() -> Dict[str, float]:
                     if "humidity" in attrs:
                         try: overrides["humidity"] = float(attrs["humidity"])
                         except (ValueError, TypeError): pass
-                elif pid == "gas_pot" or (ptype == "wokwi-potentiometer" and "gas" in str(attrs.get("label", "")).lower()):
+                elif pid == "gas_pot" or ("potentiometer" in ptype and "gas" in str(attrs.get("label", "")).lower()):
+                    # Same mapping as the firmware: knob 0-1023 == 0-1023 ppm
                     if "value" in attrs:
                         try: overrides["gas"] = float(attrs["value"])
                         except (ValueError, TypeError): pass
-                elif pid == "smoke_pot" or (ptype == "wokwi-potentiometer" and "smoke" in str(attrs.get("label", "")).lower()):
+                elif pid == "smoke_pot" or ("potentiometer" in ptype and "smoke" in str(attrs.get("label", "")).lower()):
+                    # Same mapping as the firmware: knob 0-1023 == 0-100 % obscuration
                     if "value" in attrs:
-                        try: overrides["smoke"] = float(attrs["value"])
+                        try: overrides["smoke"] = round(float(attrs["value"]) * 100.0 / 1023.0, 2)
                         except (ValueError, TypeError): pass
-                elif pid == "pir" or ptype == "wokwi-pir-motion-sensor":
+                elif pid in ["pir", "cam_pir"] or ptype == "wokwi-pir-motion-sensor":
                     if "motion" in attrs:
                         try: overrides["motion"] = float(attrs["motion"])
                         except (ValueError, TypeError): pass
@@ -208,13 +205,6 @@ def get_wokwi_overrides() -> Dict[str, float]:
                                 overrides["light"] = float(attrs[key])
                                 break
                             except (ValueError, TypeError): pass
-                elif pid == "mpu" or ptype == "wokwi-mpu6050":
-                    for key in ["vibration", "accel", "value"]:
-                        if key in attrs:
-                            try:
-                                overrides["vibration"] = float(attrs[key])
-                                break
-                            except (ValueError, TypeError): pass
             if overrides:
                 break
         except Exception as e:
@@ -223,36 +213,23 @@ def get_wokwi_overrides() -> Dict[str, float]:
 
 
 _last_wokwi_check_ts = 0.0
-_is_wokwi_active = False
+_live_wokwi_rooms: set = set()
 
-def is_live_wokwi_active(backend_url: str = "http://127.0.0.1:8000") -> bool:
-    """Detects if an active Wokwi simulator (device_id: esp32_lab02) is posting to lab_02."""
-    global _last_wokwi_check_ts, _is_wokwi_active
+def get_live_wokwi_rooms(client: httpx.Client, backend_url: str = "http://127.0.0.1:8000") -> set:
+    """Returns the set of room_ids that currently have a running Wokwi simulation posting data."""
+    global _last_wokwi_check_ts, _live_wokwi_rooms
     now = time.time()
     if now - _last_wokwi_check_ts < 2.0:
-        return _is_wokwi_active
-
+        return _live_wokwi_rooms
     _last_wokwi_check_ts = now
     try:
-        with httpx.Client(timeout=1.0) as client:
-            res = client.get(f"{backend_url}/api/sensors/room/lab_02/latest")
-            if res.status_code == 200:
-                data = res.json()
-                temp_info = data.get("readings", {}).get("temperature", {})
-                ts_str = temp_info.get("timestamp")
-                dev = temp_info.get("device_id")
-                if ts_str and dev == "esp32_lab02":
-                    from datetime import datetime, timezone
-                    dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                    if dt.tzinfo is None:
-                        dt = dt.replace(tzinfo=timezone.utc)
-                    age = (datetime.now(timezone.utc) - dt).total_seconds()
-                    _is_wokwi_active = (age <= 6.0)
-                    return _is_wokwi_active
+        res = client.get(f"{backend_url}/api/sensors/status/wokwi", timeout=1.5)
+        if res.status_code == 200:
+            _live_wokwi_rooms = set(res.json().get("active_rooms", []))
+            return _live_wokwi_rooms
     except Exception:
-        pass
-    _is_wokwi_active = False
-    return False
+        return _live_wokwi_rooms
+    return _live_wokwi_rooms
 
 class TelemetryGenerator:
     """
@@ -262,14 +239,13 @@ class TelemetryGenerator:
     - THERMAL_RUNAWAY: Rapid heater runaway (temp > 45°C) with smoke development
     - GAS_LEAK: Hazardous volatile concentration surge (gas > 400 ppm)
     - SMOKE_INVERSION: Rapid optical smoke density surge (>35% obscuration)
-    - VIBRATION_SPIKE: Structural resonance or machinery imbalance (vibration > 0.35g)
     - CASCADE_EMERGENCY: Multi-signal crisis (elevated temp + gas + smoke + motion)
     """
     def __init__(self, backend_url: str = "http://127.0.0.1:8000", room_id: str = "lab_02", device_id: str = None):
         self.backend_url = backend_url
         self.room_id = room_id
         profile = ROOM_PROFILES.get(room_id, {})
-        self.device_id = device_id or (f"sim_esp32_{room_id}" if room_id == "lab_02" else profile.get("device_id", f"esp32_{room_id}"))
+        self.device_id = device_id or (f"sim_esp32_{room_id}" if room_id in WOKWI_ROOMS else profile.get("device_id", f"esp32_{room_id}"))
         self.step_count = 0
 
     def generate_packet(self, scenario: str = "NORMAL") -> Dict[str, Any]:
@@ -279,7 +255,6 @@ class TelemetryGenerator:
             "humidity_base": 45.0, "humidity_var": 1.5,
             "gas_base": 85.0, "gas_var": 8.0,
             "smoke_base": 0.3, "smoke_var": 0.1,
-            "vibration_base": 0.022, "vibration_var": 0.006,
             "motion_prob": 0.35, "light_base": 500
         })
 
@@ -288,7 +263,6 @@ class TelemetryGenerator:
             humidity = max(20.0, 45.0 - self.step_count * 0.8)
             gas = 110.0 + random.uniform(-5, 5)
             smoke = min(60.0, 1.2 + self.step_count * 5.0 + random.uniform(-0.4, 0.4))
-            vibration = 0.035 + random.uniform(-0.005, 0.005)
             motion = 1
             light = 480
         elif scenario == "GAS_LEAK":
@@ -296,7 +270,6 @@ class TelemetryGenerator:
             humidity = 42.0 + random.uniform(-1, 1)
             gas = min(800.0, 95.0 + self.step_count * 35.0 + random.uniform(-10, 10))
             smoke = 2.0 + random.uniform(-0.3, 0.3)
-            vibration = 0.025 + random.uniform(-0.004, 0.004)
             motion = 1
             light = 510
         elif scenario == "SMOKE_INVERSION":
@@ -304,51 +277,38 @@ class TelemetryGenerator:
             humidity = 38.0 + random.uniform(-1, 1)
             gas = 160.0 + self.step_count * 12.0
             smoke = min(90.0, 5.0 + self.step_count * 12.5 + random.uniform(-1, 1))
-            vibration = 0.022 + random.uniform(-0.003, 0.003)
             motion = 1
             light = 320
-        elif scenario == "VIBRATION_SPIKE":
-            temp = 24.0 + random.uniform(-0.2, 0.2)
-            humidity = 44.0 + random.uniform(-1, 1)
-            gas = 90.0 + random.uniform(-5, 5)
-            smoke = 0.4 + random.uniform(-0.1, 0.1)
-            vibration = 0.42 + 0.15 * random.uniform(-1, 1)
-            motion = 1
-            light = 500
         elif scenario == "CASCADE_EMERGENCY":
             temp = min(58.0, 26.0 + self.step_count * 2.2)
             humidity = 35.0 + random.uniform(-2, 2)
             gas = min(650.0, 120.0 + self.step_count * 28.0)
             smoke = min(85.0, 6.0 + self.step_count * 11.0)
-            vibration = 0.28 + random.uniform(-0.05, 0.05)
             motion = 1
             light = 550
-        else: # NORMAL Baseline (customized to room's environmental physics)
-            temp = prof["temp_base"] + prof["temp_var"] * random.uniform(-1, 1)
-            humidity = prof["humidity_base"] + prof["humidity_var"] * random.uniform(-1, 1)
-            gas = prof["gas_base"] + prof["gas_var"] * random.uniform(-1, 1)
-            smoke = max(0.0, prof["smoke_base"] + prof["smoke_var"] * random.uniform(-1, 1))
-            vibration = prof["vibration_base"] + prof["vibration_var"] * random.uniform(-1, 1)
-            motion = 1 if random.random() < prof["motion_prob"] else 0
-            light = prof["light_base"] + int(15 * random.uniform(-1, 1))
+        else: # NORMAL Baseline (fixed default values without random fluctuations)
+            temp = float(prof["temp_base"])
+            humidity = float(prof["humidity_base"])
+            gas = float(prof["gas_base"])
+            smoke = float(prof["smoke_base"])
+            motion = 0
+            light = int(prof["light_base"])
 
-            # Dynamically apply real-time Wokwi diagram edits for lab_02
-            if self.room_id == "lab_02":
-                wokwi_vals = get_wokwi_overrides()
+            # Dynamically apply Wokwi diagram.json edits for lab_02 and classroom_01
+            if self.room_id in WOKWI_ROOMS:
+                wokwi_vals = get_wokwi_overrides(self.room_id)
                 if "temperature" in wokwi_vals:
-                    temp = wokwi_vals["temperature"] + random.uniform(-0.1, 0.1)
+                    temp = float(wokwi_vals["temperature"])
                 if "humidity" in wokwi_vals:
-                    humidity = wokwi_vals["humidity"] + random.uniform(-0.2, 0.2)
+                    humidity = float(wokwi_vals["humidity"])
                 if "gas" in wokwi_vals:
-                    gas = max(0.0, wokwi_vals["gas"] + random.uniform(-1.0, 1.0))
+                    gas = max(0.0, float(wokwi_vals["gas"]))
                 if "smoke" in wokwi_vals:
-                    smoke = max(0.0, wokwi_vals["smoke"] + random.uniform(-0.05, 0.05))
+                    smoke = max(0.0, float(wokwi_vals["smoke"]))
                 if "motion" in wokwi_vals:
                     motion = int(wokwi_vals["motion"])
                 if "light" in wokwi_vals:
                     light = int(wokwi_vals["light"])
-                if "vibration" in wokwi_vals:
-                    vibration = max(0.001, wokwi_vals["vibration"])
 
         readings = [
             {"sensor_type": "temperature", "value": round(temp, 2), "unit": "C"},
@@ -356,8 +316,7 @@ class TelemetryGenerator:
             {"sensor_type": "gas", "value": round(gas, 1), "unit": "ppm"},
             {"sensor_type": "smoke", "value": round(smoke, 2), "unit": "%"},
             {"sensor_type": "motion", "value": int(motion), "unit": "state"},
-            {"sensor_type": "light", "value": int(light), "unit": "lux"},
-            {"sensor_type": "vibration", "value": round(max(0.001, vibration), 4), "unit": "g"}
+            {"sensor_type": "light", "value": int(light), "unit": "lux"}
         ]
 
         return {
@@ -381,7 +340,7 @@ class TelemetryGenerator:
         return False
 
 
-def run_multi_room_network(backend_url: str = "http://127.0.0.1:8000", interval: float = 2.5):
+def run_multi_room_network(backend_url: str = "http://127.0.0.1:8000", interval: float = 1.0):
     """
     Simulates the entire distributed building sensor mesh network.
     Streams continuous independent environmental telemetry for all 9 zones.
@@ -398,8 +357,10 @@ def run_multi_room_network(backend_url: str = "http://127.0.0.1:8000", interval:
     with httpx.Client(timeout=5.0) as client:
         while True:
             success_count = 0
+            live_rooms = get_live_wokwi_rooms(client, backend_url)
             for gen in generators:
-                if gen.room_id == "lab_02" and is_live_wokwi_active(backend_url):
+                # A running Wokwi simulation owns its room: never overwrite its values
+                if gen.room_id in live_rooms:
                     continue
                 if gen.dispatch(client=client, scenario="NORMAL"):
                     success_count += 1
@@ -410,7 +371,7 @@ def run_multi_room_network(backend_url: str = "http://127.0.0.1:8000", interval:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NEXUS ESP32 Telemetry Generator")
     parser.add_argument("--room", default="all", help="Target room ID (or 'all' for full building mesh simulation)")
-    parser.add_argument("--scenario", choices=["NORMAL", "THERMAL_RUNAWAY", "GAS_LEAK", "VIBRATION_SPIKE", "CASCADE_EMERGENCY"], default="NORMAL", help="Simulation scenario")
+    parser.add_argument("--scenario", choices=["NORMAL", "THERMAL_RUNAWAY", "GAS_LEAK", "CASCADE_EMERGENCY"], default="NORMAL", help="Simulation scenario")
     parser.add_argument("--interval", type=float, default=2.5, help="Transmission interval in seconds")
     args = parser.parse_args()
 

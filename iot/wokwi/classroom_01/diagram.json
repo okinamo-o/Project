@@ -1,0 +1,275 @@
+{
+  "version": 1,
+  "author": "NEXUS Engineering Team",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-devkit-c-v4",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-dht22",
+      "id": "dht",
+      "top": -140,
+      "left": -140,
+      "attrs": {
+        "temperature": "21.8",
+        "humidity": "48"
+      }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "gas_pot",
+      "top": -140,
+      "left": 80,
+      "attrs": {
+        "value": "85",
+        "label": "Gas Concentration (ppm)"
+      }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "smoke_pot",
+      "top": -140,
+      "left": 220,
+      "attrs": {
+        "value": "3",
+        "label": "Smoke Obscuration (%)"
+      }
+    },
+    {
+      "type": "wokwi-pir-motion-sensor",
+      "id": "cam_pir",
+      "top": 140,
+      "left": -140,
+      "attrs": {
+        "label": "Normal Camera Motion / Presence"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "cam_led",
+      "top": 140,
+      "left": 20,
+      "attrs": {
+        "color": "blue",
+        "label": "Camera Active"
+      }
+    },
+    {
+      "type": "wokwi-photoresistor-sensor",
+      "id": "ldr",
+      "top": 140,
+      "left": 160,
+      "attrs": {
+        "lux": "500",
+        "label": "LDR Fire / Light Sensor"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "alert_led",
+      "top": -60,
+      "left": -50,
+      "attrs": {
+        "color": "red",
+        "label": "Hazard Alert"
+      }
+    },
+    {
+      "type": "wokwi-buzzer",
+      "id": "buzzer",
+      "top": -60,
+      "left": 40,
+      "attrs": {
+        "hasVolume": "1"
+      }
+    }
+  ],
+  "connections": [
+    [
+      "esp:TX",
+      "$serialMonitor:RX",
+      "",
+      []
+    ],
+    [
+      "esp:RX",
+      "$serialMonitor:TX",
+      "",
+      []
+    ],
+    [
+      "esp:GND.1",
+      "dht:GND",
+      "black",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:3V3",
+      "dht:VCC",
+      "red",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:4",
+      "dht:SDA",
+      "green",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:GND.1",
+      "gas_pot:GND",
+      "black",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:3V3",
+      "gas_pot:VCC",
+      "red",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:34",
+      "gas_pot:SIG",
+      "orange",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:GND.1",
+      "smoke_pot:GND",
+      "black",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:3V3",
+      "smoke_pot:VCC",
+      "red",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:VP",
+      "smoke_pot:SIG",
+      "gold",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:GND.2",
+      "cam_pir:GND",
+      "black",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:3V3",
+      "cam_pir:VCC",
+      "red",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:13",
+      "cam_pir:OUT",
+      "purple",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:2",
+      "cam_led:A",
+      "blue",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:GND.2",
+      "cam_led:C",
+      "black",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:12",
+      "alert_led:A",
+      "red",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:GND.2",
+      "alert_led:C",
+      "black",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:15",
+      "buzzer:2",
+      "green",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:GND.2",
+      "buzzer:1",
+      "black",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:GND.2",
+      "ldr:GND",
+      "black",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:3V3",
+      "ldr:VCC",
+      "red",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp:35",
+      "ldr:AO",
+      "yellow",
+      [
+        "v0"
+      ]
+    ]
+  ],
+  "dependencies": {}
+}

@@ -23,7 +23,7 @@ PRECONFIGURED_SCENARIOS = {
     },
     "thermal_runaway": {
         "name": "Thermal Runaway in Server Room",
-        "description": "Cooling unit failure leads to severe temperature spike (+3.2°C/min) with thermal stress vibration.",
+        "description": "Cooling unit failure leads to severe temperature spike (+3.2°C/min).",
         "room_id": "server_room",
         "temperature": 45.0,
         "gas": 90.0,

@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   ShieldAlert, Eye, Mic, RotateCcw, Flame, Wind, Thermometer,
-  ArrowUpRight, Send, FileText, Sliders, Play, Volume2,
+  ArrowUpRight, Send, FileText, Volume2,
   BellRing, ExternalLink, Sparkles, Maximize2, X,
   ShieldCheck, Sun, Moon, Building2, MessageSquare, CheckCircle2
 } from 'lucide-react';
@@ -12,7 +12,7 @@ import Building3D, {
   FACILITY_ROOM_CONFIGS,
 } from '@/components/digital-twin/Building3D';
 import { rtdb } from '@/lib/firebase';
-import { ref as dbRef, onValue } from 'firebase/database';
+import { ref as dbRef, onValue, set as dbSet, remove as dbRemove } from 'firebase/database';
 
 interface SystemHealth {
   status: string;
@@ -37,6 +37,7 @@ interface Incident {
   status: string;
   summary: string;
   ai_explanation?: string;
+  created_at?: string;
   timeline: Array<{ time: string; source: string; description: string }>;
   evidence: Array<{ id: number; source_type: string; source_id: string; contribution: number; explanation: string }>;
 }
@@ -46,31 +47,24 @@ interface RoomTelemetry {
   humidity: number;
   gas: number;
   smoke: number;
+  light: number;
   occupancy: number;
-  vibration: number;
   tempHistory: number[];
   gasHistory: number[];
   smokeHistory: number[];
 }
 
 const DEFAULT_ROOM_TELEMETRY: Record<string, RoomTelemetry> = {
-  server_room: { temperature: 18.5, humidity: 35.0, gas: 35.0, smoke: 0.1, occupancy: 0, vibration: 0.075, tempHistory: [18.4, 18.5, 18.6, 18.5, 18.5], gasHistory: [34, 35, 36, 35, 35], smokeHistory: [0.1, 0.1, 0.1, 0.1, 0.1] },
-  classroom_01: { temperature: 21.8, humidity: 48.0, gas: 240.0, smoke: 0.3, occupancy: 18, vibration: 0.015, tempHistory: [21.5, 21.6, 21.7, 21.8, 21.8], gasHistory: [230, 235, 238, 240, 242], smokeHistory: [0.3, 0.3, 0.3, 0.3, 0.3] },
-  classroom_02: { temperature: 22.2, humidity: 47.0, gas: 260.0, smoke: 0.3, occupancy: 22, vibration: 0.018, tempHistory: [21.9, 22.0, 22.1, 22.2, 22.2], gasHistory: [250, 255, 258, 260, 262], smokeHistory: [0.3, 0.3, 0.3, 0.3, 0.3] },
-  lab_01: { temperature: 21.5, humidity: 44.0, gas: 80.0, smoke: 0.2, occupancy: 12, vibration: 0.020, tempHistory: [21.3, 21.4, 21.4, 21.5, 21.5], gasHistory: [78, 79, 80, 81, 80], smokeHistory: [0.2, 0.2, 0.2, 0.2, 0.2] },
-  lab_02: { temperature: 23.5, humidity: 45.0, gas: 75.0, smoke: 0.4, occupancy: 0, vibration: 0.035, tempHistory: [23.2, 23.3, 23.4, 23.5, 23.5], gasHistory: [74, 75, 76, 75, 75], smokeHistory: [0.4, 0.4, 0.4, 0.4, 0.4] },
-  storage_room: { temperature: 19.8, humidity: 40.0, gas: 125.0, smoke: 0.5, occupancy: 0, vibration: 0.012, tempHistory: [19.7, 19.8, 19.8, 19.8, 19.8], gasHistory: [122, 124, 125, 126, 125], smokeHistory: [0.5, 0.5, 0.5, 0.5, 0.5] },
-  main_hall: { temperature: 21.0, humidity: 50.0, gas: 180.0, smoke: 0.3, occupancy: 35, vibration: 0.028, tempHistory: [20.8, 20.9, 21.0, 21.0, 21.1], gasHistory: [175, 178, 180, 182, 180], smokeHistory: [0.3, 0.3, 0.3, 0.3, 0.3] },
-  entrance: { temperature: 20.5, humidity: 52.0, gas: 160.0, smoke: 0.2, occupancy: 8, vibration: 0.024, tempHistory: [20.3, 20.4, 20.5, 20.5, 20.6], gasHistory: [155, 158, 160, 162, 160], smokeHistory: [0.2, 0.2, 0.2, 0.2, 0.2] },
-  emergency_exit: { temperature: 19.2, humidity: 46.0, gas: 65.0, smoke: 0.1, occupancy: 0, vibration: 0.010, tempHistory: [19.1, 19.2, 19.2, 19.2, 19.2], gasHistory: [64, 65, 65, 66, 65], smokeHistory: [0.1, 0.1, 0.1, 0.1, 0.1] }
+  server_room: { temperature: 18.5, humidity: 35.0, gas: 35.0, smoke: 0.1, light: 150, occupancy: 0, tempHistory: [18.4, 18.5, 18.6, 18.5, 18.5], gasHistory: [34, 35, 36, 35, 35], smokeHistory: [0.1, 0.1, 0.1, 0.1, 0.1] },
+  classroom_01: { temperature: 21.8, humidity: 48.0, gas: 85.0, smoke: 0.3, light: 500, occupancy: 18, tempHistory: [21.5, 21.6, 21.7, 21.8, 21.8], gasHistory: [82, 84, 85, 85, 85], smokeHistory: [0.3, 0.3, 0.3, 0.3, 0.3] },
+  classroom_02: { temperature: 22.2, humidity: 47.0, gas: 90.0, smoke: 0.3, light: 480, occupancy: 22, tempHistory: [21.9, 22.0, 22.1, 22.2, 22.2], gasHistory: [88, 89, 90, 90, 90], smokeHistory: [0.3, 0.3, 0.3, 0.3, 0.3] },
+  lab_01: { temperature: 21.5, humidity: 44.0, gas: 80.0, smoke: 0.2, light: 520, occupancy: 12, tempHistory: [21.3, 21.4, 21.4, 21.5, 21.5], gasHistory: [78, 79, 80, 81, 80], smokeHistory: [0.2, 0.2, 0.2, 0.2, 0.2] },
+  lab_02: { temperature: 23.5, humidity: 45.0, gas: 75.0, smoke: 0.4, light: 500, occupancy: 0, tempHistory: [23.2, 23.3, 23.4, 23.5, 23.5], gasHistory: [74, 75, 76, 75, 75], smokeHistory: [0.4, 0.4, 0.4, 0.4, 0.4] },
+  storage_room: { temperature: 19.8, humidity: 40.0, gas: 95.0, smoke: 0.5, light: 80, occupancy: 0, tempHistory: [19.7, 19.8, 19.8, 19.8, 19.8], gasHistory: [93, 94, 95, 95, 95], smokeHistory: [0.5, 0.5, 0.5, 0.5, 0.5] },
+  main_hall: { temperature: 21.0, humidity: 50.0, gas: 85.0, smoke: 0.3, light: 650, occupancy: 35, tempHistory: [20.8, 20.9, 21.0, 21.0, 21.1], gasHistory: [83, 84, 85, 85, 85], smokeHistory: [0.3, 0.3, 0.3, 0.3, 0.3] },
+  entrance: { temperature: 20.5, humidity: 52.0, gas: 75.0, smoke: 0.2, light: 700, occupancy: 8, tempHistory: [20.3, 20.4, 20.5, 20.5, 20.6], gasHistory: [74, 75, 75, 76, 75], smokeHistory: [0.2, 0.2, 0.2, 0.2, 0.2] },
+  emergency_exit: { temperature: 19.2, humidity: 46.0, gas: 65.0, smoke: 0.1, light: 200, occupancy: 0, tempHistory: [19.1, 19.2, 19.2, 19.2, 19.2], gasHistory: [64, 65, 65, 66, 65], smokeHistory: [0.1, 0.1, 0.1, 0.1, 0.1] }
 };
-
-const QUICK_SCENARIOS = [
-  { label: 'Fire & Smoke in Lab 02', room_id: 'lab_02', tempDelta: 26, gasDelta: 340, smokeDelta: 45, person: true, audioAlarm: true, motion: true },
-  { label: 'Server Room Overheat', room_id: 'server_room', tempDelta: 24, gasDelta: 20, smokeDelta: 2, person: false, audioAlarm: false, motion: false },
-  { label: 'Gas Leak in Lab 02', room_id: 'lab_02', tempDelta: 3, gasDelta: 400, smokeDelta: 5, person: true, audioAlarm: false, motion: true },
-  { label: 'Normal Baseline', room_id: 'lab_02', tempDelta: 0, gasDelta: 0, smokeDelta: 0, person: false, audioAlarm: false, motion: false },
-];
 
 export default function OperationsCenter() {
   const [theme, setTheme] = useState<'daylight' | 'midnight'>('daylight');
@@ -84,20 +78,48 @@ export default function OperationsCenter() {
       state: 'NORMAL',
     }))
   );
-  const [selectedRoomId, setSelectedRoomId] = useState<string>('lab_02');
+  const [selectedRoomId, setSelectedRoomId] = useState<string>('classroom_01');
   const selectedRoomIdRef = useRef<string>(selectedRoomId);
-  useEffect(() => {
-    selectedRoomIdRef.current = selectedRoomId;
-  }, [selectedRoomId]);
 
+  // Restore saved theme and selected room from localStorage on mount
+  useEffect(() => {
+    try {
+      const savedTheme = localStorage.getItem('nexus_theme') as 'daylight' | 'midnight' | null;
+      if (savedTheme === 'daylight' || savedTheme === 'midnight') {
+        setTheme(savedTheme);
+        document.documentElement.setAttribute('data-theme', savedTheme);
+      }
+      const savedRoom = localStorage.getItem('nexus_selected_room');
+      if (savedRoom && FACILITY_ROOM_CONFIGS.some((c) => c.id === savedRoom)) {
+        setSelectedRoomId(savedRoom);
+        selectedRoomIdRef.current = savedRoom;
+      }
+    } catch {}
+  }, []);
+
+  // Persist theme to localStorage and HTML attribute whenever it changes
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
+    try {
+      localStorage.setItem('nexus_theme', theme);
+    } catch {}
   }, [theme]);
 
+  // Persist selectedRoomId to localStorage and ref whenever it changes
+  useEffect(() => {
+    selectedRoomIdRef.current = selectedRoomId;
+    try {
+      localStorage.setItem('nexus_selected_room', selectedRoomId);
+    } catch {}
+  }, [selectedRoomId]);
+
   const [wsConnected, setWsConnected] = useState<boolean>(false);
+  const wsConnectedRef = useRef<boolean>(false);
   const [firebaseConnected, setFirebaseConnected] = useState<boolean>(false);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [snapshotModalOpen, setSnapshotModalOpen] = useState<boolean>(false);
+  const [mobileTab, setMobileTab] = useState<'overview' | '3d' | 'sensors' | 'ai'>('overview');
+  const chatScrollRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const [allTelemetry, setAllTelemetry] = useState<Record<string, RoomTelemetry>>(DEFAULT_ROOM_TELEMETRY);
@@ -106,6 +128,8 @@ export default function OperationsCenter() {
   const audioEventTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [isWokwiActive, setIsWokwiActive] = useState<boolean>(false);
   const wokwiTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [activeWokwiRooms, setActiveWokwiRooms] = useState<Record<string, boolean>>({});
+  const wokwiTimersRef = useRef<Record<string, NodeJS.Timeout>>({});
   const [predictionVariable, setPredictionVariable] = useState<'temperature' | 'gas' | 'humidity'>('temperature');
   const [prediction, setPrediction] = useState<any>(null);
   const [visionSnapshot, setVisionSnapshot] = useState<string | null>(null);
@@ -114,13 +138,14 @@ export default function OperationsCenter() {
   const [explainingIncidentId, setExplainingIncidentId] = useState<string | null>(null);
 
   const currentTelem = allTelemetry[selectedRoomId] || DEFAULT_ROOM_TELEMETRY[selectedRoomId] || {
-    temperature: 22.0, humidity: 45.0, gas: 80.0, smoke: 0.3, occupancy: 0, vibration: 0.025,
+    temperature: 22.0, humidity: 45.0, gas: 80.0, smoke: 0.3, light: 500, occupancy: 0,
     tempHistory: [22.0, 22.0, 22.0, 22.0, 22.0], gasHistory: [80, 80, 80, 80, 80], smokeHistory: [0.3, 0.3, 0.3, 0.3, 0.3]
   };
   const temperature = currentTelem.temperature;
   const humidity = currentTelem.humidity;
   const gas = currentTelem.gas;
   const smoke = currentTelem.smoke ?? 0.3;
+  const light = currentTelem.light ?? 500;
   const occupancy = currentTelem.occupancy;
 
   // AI Assistant state
@@ -134,21 +159,15 @@ export default function OperationsCenter() {
   const [aiLoading, setAiLoading] = useState<boolean>(false);
   const [isListening, setIsListening] = useState<boolean>(false);
 
-  // Right bottom tool tab ('assistant' | 'simulation')
-  const [rightToolTab, setRightToolTab] = useState<'assistant' | 'simulation'>('assistant');
-
-  // Simulation state
-  const [simTempDelta, setSimTempDelta] = useState<number>(20.0);
-  const [simGasDelta, setSimGasDelta] = useState<number>(320.0);
-  const [simSmokeDelta, setSimSmokeDelta] = useState<number>(35.0);
-  const [simMotion, setSimMotion] = useState<boolean>(true);
-  const [simPerson, setSimPerson] = useState<boolean>(true);
-  const [simAudioAlarm, setSimAudioAlarm] = useState<boolean>(true);
-  const [disabledSensors, setDisabledSensors] = useState<string[]>([]);
-  const [simExecuting, setSimExecuting] = useState<boolean>(false);
-
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (chatMessages.length > 1 || aiLoading) {
+      if (chatScrollRef.current) {
+        chatScrollRef.current.scrollTo({
+          top: chatScrollRef.current.scrollHeight,
+          behavior: 'smooth',
+        });
+      }
+    }
   }, [chatMessages, aiLoading]);
 
   useEffect(() => {
@@ -162,9 +181,9 @@ export default function OperationsCenter() {
   }, [snapshotModalOpen]);
 
   const activeIncident =
-    incidents.find((i) => i.status === 'ACTIVE' && i.room_id === selectedRoomId) ||
-    incidents.find((i) => i.status === 'ACTIVE') ||
-    null;
+    incidents.find(
+      (i) => (i.status === 'ACTIVE' || !i.status) && i.room_id === selectedRoomId
+    ) || null;
 
   const loadInitialData = async () => {
     const targetRoom = selectedRoomIdRef.current;
@@ -218,14 +237,14 @@ export default function OperationsCenter() {
         if (sData.readings) {
           setAllTelemetry((prev) => {
             const cur = prev[targetRoom] || DEFAULT_ROOM_TELEMETRY[targetRoom] || {
-              temperature: 22.0, humidity: 45.0, gas: 80.0, smoke: 0.3, occupancy: 0, vibration: 0.025,
+              temperature: 22.0, humidity: 45.0, gas: 80.0, smoke: 0.3, light: 500, occupancy: 0,
               tempHistory: [], gasHistory: [], smokeHistory: []
             };
             const r = sData.readings;
             const newT = r.temperature ? r.temperature.value : cur.temperature;
             const newG = r.gas ? r.gas.value : cur.gas;
             const newS = r.smoke ? r.smoke.value : (cur.smoke ?? 0.3);
-            const newV = r.vibration ? r.vibration.value : cur.vibration;
+            const newL = r.light ? r.light.value : (cur.light ?? 500);
             const newH = r.humidity ? r.humidity.value : cur.humidity;
             const newOcc = latestOccupancy !== undefined ? latestOccupancy : cur.occupancy;
             return {
@@ -235,7 +254,7 @@ export default function OperationsCenter() {
                 temperature: newT,
                 gas: newG,
                 smoke: newS,
-                vibration: newV,
+                light: newL,
                 humidity: newH,
                 occupancy: newOcc,
                 tempHistory: [...(cur.tempHistory || []).slice(-12), newT],
@@ -260,9 +279,18 @@ export default function OperationsCenter() {
     let ws: WebSocket;
     try {
       ws = new WebSocket('ws://127.0.0.1:8000/ws/telemetry');
-      ws.onopen = () => setWsConnected(true);
-      ws.onclose = () => setWsConnected(false);
-      ws.onerror = () => setWsConnected(false);
+      ws.onopen = () => {
+        wsConnectedRef.current = true;
+        setWsConnected(true);
+      };
+      ws.onclose = () => {
+        wsConnectedRef.current = false;
+        setWsConnected(false);
+      };
+      ws.onerror = () => {
+        wsConnectedRef.current = false;
+        setWsConnected(false);
+      };
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
@@ -271,26 +299,29 @@ export default function OperationsCenter() {
           if (data.type === 'SENSOR_READING' || data.type === 'SENSOR_BATCH' || data.type === 'VISION_EVENT') {
             setAllTelemetry((prev) => {
               const cur = prev[roomTarget] || DEFAULT_ROOM_TELEMETRY[roomTarget] || {
-                temperature: 22.0, humidity: 45.0, gas: 80.0, smoke: 0.3, occupancy: 0, vibration: 0.025,
+                temperature: 22.0, humidity: 45.0, gas: 80.0, smoke: 0.3, light: 500, occupancy: 0,
                 tempHistory: [], gasHistory: [], smokeHistory: []
               };
               let t = cur.temperature;
               let g = cur.gas;
               let s = cur.smoke ?? 0.3;
-              let v = cur.vibration;
+              let l = cur.light ?? 500;
+              let h = cur.humidity;
               let o = cur.occupancy;
 
               if (data.type === 'SENSOR_READING') {
                 if (data.sensor_type === 'temperature') t = data.value;
                 if (data.sensor_type === 'gas') g = data.value;
                 if (data.sensor_type === 'smoke') s = data.value;
-                if (data.sensor_type === 'vibration') v = data.value;
+                if (data.sensor_type === 'light') l = data.value;
+                if (data.sensor_type === 'humidity') h = data.value;
               } else if (data.type === 'SENSOR_BATCH') {
                 data.readings.forEach((r: any) => {
                   if (r.sensor_type === 'temperature') t = r.value;
                   if (r.sensor_type === 'gas') g = r.value;
                   if (r.sensor_type === 'smoke') s = r.value;
-                  if (r.sensor_type === 'vibration') v = r.value;
+                  if (r.sensor_type === 'light') l = r.value;
+                  if (r.sensor_type === 'humidity') h = r.value;
                 });
               } else if (data.type === 'VISION_EVENT') {
                 o = data.occupancy;
@@ -306,7 +337,8 @@ export default function OperationsCenter() {
                   temperature: t,
                   gas: g,
                   smoke: s,
-                  vibration: v,
+                  light: l,
+                  humidity: h,
                   occupancy: o,
                   tempHistory: [...(cur.tempHistory || []).slice(-12), t],
                   gasHistory: [...(cur.gasHistory || []).slice(-12), g],
@@ -331,16 +363,47 @@ export default function OperationsCenter() {
             } else if (!audioEventTimerRef.current) {
               setAudioEvent('NORMAL');
             }
-          } else if (data.type === 'SENSOR_BATCH' && data.room_id === 'lab_02') {
+          } else if (data.type === 'SENSOR_BATCH') {
             if (data.is_wokwi) {
+              const rid = data.room_id || 'lab_02';
+              setActiveWokwiRooms((prev) => ({ ...prev, [rid]: true }));
               setIsWokwiActive(true);
-              if (wokwiTimerRef.current) clearTimeout(wokwiTimerRef.current);
-              wokwiTimerRef.current = setTimeout(() => {
+              if (wokwiTimersRef.current[rid]) clearTimeout(wokwiTimersRef.current[rid]);
+              wokwiTimersRef.current[rid] = setTimeout(() => {
+                setActiveWokwiRooms((prev) => ({ ...prev, [rid]: false }));
+                delete wokwiTimersRef.current[rid];
                 setIsWokwiActive(false);
-                wokwiTimerRef.current = null;
               }, 15000);
             }
-          } else if (data.type === 'INCIDENT_ALERT' || data.type === 'INCIDENT_RESOLVED' || data.type === 'SIMULATION_RESULT') {
+          } else if (data.type === 'INCIDENT_ALERT') {
+            const newInc: Incident = {
+              id: data.id || data.incident_id || `inc_${Date.now()}`,
+              room_id: data.room_id,
+              type: data.incident_type || data.type,
+              severity: data.severity || 'CRITICAL',
+              confidence: data.confidence || 0.9,
+              status: 'ACTIVE',
+              summary: data.summary || `Alert detected in ${data.room_id}`,
+              evidence: data.evidence || [],
+              timeline: data.timeline || [],
+              created_at: data.created_at || new Date().toISOString()
+            };
+            setIncidents((prev) => [newInc, ...prev.filter((i) => i.room_id !== data.room_id && i.id !== newInc.id)]);
+            setRooms((prev) =>
+              prev.map((r) =>
+                r.id === data.room_id
+                  ? { ...r, state: data.severity === 'CRITICAL' ? 'INCIDENT' : 'ANOMALY' }
+                  : r
+              )
+            );
+          } else if (data.type === 'INCIDENT_RESOLVED') {
+            setIncidents((prev) =>
+              prev.filter((i) => i.id !== data.incident_id && i.room_id !== data.room_id)
+            );
+            setRooms((prev) =>
+              prev.map((r) => (r.id === data.room_id ? { ...r, state: 'NORMAL' } : r))
+            );
+          } else if (data.type === 'SIMULATION_RESULT') {
             loadInitialData();
           } else if (data.type === 'ROOM_STATE_CHANGED') {
             setRooms((prev) => prev.map((r) => (r.id === data.room_id ? { ...r, state: data.state } : r)));
@@ -370,8 +433,9 @@ export default function OperationsCenter() {
         unsubTelemetry = onValue(
           telemRef,
           (snapshot) => {
+            setFirebaseConnected(true);
+            if (wsConnectedRef.current) return;
             if (snapshot.exists()) {
-              setFirebaseConnected(true);
               const val = snapshot.val();
               if (val && typeof val === 'object') {
                 setAllTelemetry((prev) => {
@@ -379,13 +443,14 @@ export default function OperationsCenter() {
                   Object.entries(val).forEach(([roomId, data]: [string, any]) => {
                     if (!data || typeof data !== 'object') return;
                     const cur = updated[roomId] || DEFAULT_ROOM_TELEMETRY[roomId] || {
-                      temperature: 22.0, humidity: 45.0, gas: 80.0, smoke: 0.3, occupancy: 0, vibration: 0.025,
+                      temperature: 22.0, humidity: 45.0, gas: 80.0, smoke: 0.3, light: 500, occupancy: 0,
                       tempHistory: [], gasHistory: [], smokeHistory: []
                     };
                     let t = data.temperature !== undefined ? Number(data.temperature) : cur.temperature;
                     let g = data.gas !== undefined ? Number(data.gas) : cur.gas;
                     let s = data.smoke !== undefined ? Number(data.smoke) : (cur.smoke ?? 0.3);
-                    let v = data.vibration !== undefined ? Number(data.vibration) : cur.vibration;
+                    let l = data.light !== undefined ? Number(data.light) : (cur.light ?? 500);
+                    let h = data.humidity !== undefined ? Number(data.humidity) : cur.humidity;
                     let o = data.occupancy !== undefined ? Number(data.occupancy) : cur.occupancy;
 
                     updated[roomId] = {
@@ -393,7 +458,8 @@ export default function OperationsCenter() {
                       temperature: t,
                       gas: g,
                       smoke: s,
-                      vibration: v,
+                      light: l,
+                      humidity: h,
                       occupancy: o,
                       tempHistory: [...(cur.tempHistory || []).slice(-12), t],
                       gasHistory: [...(cur.gasHistory || []).slice(-12), g],
@@ -405,20 +471,36 @@ export default function OperationsCenter() {
               }
             }
           },
-          () => {}
+          (err) => { console.warn('[NEXUS] Firebase telemetry read denied/failed:', err?.message); }
         );
 
         const incRef = dbRef(rtdb, 'incidents');
         unsubIncidents = onValue(
           incRef,
           (snapshot) => {
+            setFirebaseConnected(true);
+            if (wsConnectedRef.current) return;
             if (snapshot.exists()) {
-              setFirebaseConnected(true);
               const val = snapshot.val();
               if (val && typeof val === 'object') {
-                const incList: Incident[] = Object.values(val);
-                if (incList.length > 0) setIncidents(incList);
+                const incList: Incident[] = Object.entries(val).map(([key, item]: [string, any]) => ({
+                  id: item.id || item.incident_id || key,
+                  room_id: item.room_id || '',
+                  type: (item.incident_type && item.incident_type !== 'INCIDENT_ALERT' ? item.incident_type : item.type) || 'ANOMALY',
+                  severity: item.severity || 'WARNING',
+                  confidence: item.confidence ?? 0.85,
+                  status: item.status || 'ACTIVE',
+                  summary: item.summary || '',
+                  evidence: item.evidence || [],
+                  timeline: item.timeline || [],
+                  created_at: item.created_at || new Date().toISOString()
+                }));
+                setIncidents(incList.filter((i) => i.status === 'ACTIVE'));
+              } else {
+                setIncidents([]);
               }
+            } else {
+              setIncidents([]);
             }
           },
           () => {}
@@ -428,8 +510,9 @@ export default function OperationsCenter() {
         unsubRooms = onValue(
           roomsRef,
           (snapshot) => {
+            setFirebaseConnected(true);
+            if (wsConnectedRef.current) return;
             if (snapshot.exists()) {
-              setFirebaseConnected(true);
               const val = snapshot.val();
               if (val && typeof val === 'object') {
                 setRooms((prev) =>
@@ -455,6 +538,11 @@ export default function OperationsCenter() {
     const q = queryText || question;
     if (!q.trim() || aiLoading) return;
 
+    const recentHistory = chatMessages.slice(-6).map((m) => ({
+      role: m.role,
+      text: m.text
+    }));
+
     setChatMessages((prev) => [...prev, { role: 'user', text: q }]);
     setQuestion('');
     setAiLoading(true);
@@ -463,7 +551,11 @@ export default function OperationsCenter() {
       const res = await fetch('http://127.0.0.1:8000/api/ai/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: q, room_id: selectedRoomId })
+        body: JSON.stringify({
+          question: q,
+          room_id: selectedRoomId,
+          history: recentHistory
+        })
       });
       if (res.ok) {
         const data = await res.json();
@@ -471,6 +563,10 @@ export default function OperationsCenter() {
           ...prev,
           { role: 'assistant', text: data.answer, offline: data.is_offline_mode }
         ]);
+        fetch('http://127.0.0.1:8000/api/health')
+          .then((r) => r.ok && r.json())
+          .then((h) => h && setHealth(h))
+          .catch(() => {});
       }
     } catch {
       setChatMessages((prev) => [
@@ -498,13 +594,19 @@ export default function OperationsCenter() {
   };
 
   const handleResolveSingleIncident = async (incidentId: string) => {
+    setForensicExplanation(null);
+    setIncidents((prev) => prev.filter((i) => i.id !== incidentId));
+    setRooms((prev) => prev.map((r) => (r.id === selectedRoomId ? { ...r, state: 'NORMAL' } : r)));
+    try {
+      if (rtdb) {
+        dbRemove(dbRef(rtdb, `incidents/${incidentId}`)).catch(() => {});
+        dbSet(dbRef(rtdb, `rooms/${selectedRoomId}`), { state: 'NORMAL', active_incident_id: null }).catch(() => {});
+      }
+    } catch {}
     try {
       await fetch(`http://127.0.0.1:8000/api/incidents/${incidentId}/resolve`, { method: 'POST' });
-      setForensicExplanation(null);
       await loadInitialData();
-    } catch (e) {
-      console.error('Resolve error:', e);
-    }
+    } catch {}
   };
 
   const toggleSpeechRecognition = () => {
@@ -532,53 +634,23 @@ export default function OperationsCenter() {
     recognition.start();
   };
 
-  const handleRunSimulation = async (customPreset?: typeof QUICK_SCENARIOS[number]) => {
-    setSimExecuting(true);
-    const targetRoom = customPreset ? customPreset.room_id : selectedRoomId;
-    const tDelta = customPreset ? customPreset.tempDelta : simTempDelta;
-    const gDelta = customPreset ? customPreset.gasDelta : simGasDelta;
-    const sDelta = customPreset ? customPreset.smokeDelta : simSmokeDelta;
-    const person = customPreset ? customPreset.person : simPerson;
-    const alarm = customPreset ? customPreset.audioAlarm : simAudioAlarm;
-    const motion = customPreset ? customPreset.motion : simMotion;
-
-    if (customPreset) {
-      setSelectedRoomId(customPreset.room_id);
-      setSimTempDelta(customPreset.tempDelta);
-      setSimGasDelta(customPreset.gasDelta);
-      setSimSmokeDelta(customPreset.smokeDelta);
-      setSimPerson(customPreset.person);
-      setSimAudioAlarm(customPreset.audioAlarm);
-      setSimMotion(customPreset.motion);
-    }
-
-    try {
-      await fetch('http://127.0.0.1:8000/api/simulation/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scenario: 'custom_what_if',
-          room_id: targetRoom,
-          temperature_delta: tDelta,
-          gas_delta: gDelta,
-          smoke_delta: sDelta,
-          motion,
-          person_present: person,
-          acoustic_anomaly: alarm,
-          disabled_sensors: disabledSensors
-        })
-      });
-      await loadInitialData();
-    } catch (e) {
-      console.error('Simulation error:', e);
-    } finally {
-      setSimExecuting(false);
-    }
-  };
-
   const handleResetSystem = async () => {
+    const prevIncs = [...incidents];
+    setIncidents([]);
+    setRooms((prev) => prev.map((r) => ({ ...r, state: 'NORMAL' })));
+    setAllTelemetry(DEFAULT_ROOM_TELEMETRY);
+    setAudioEvent('NORMAL');
+    setForensicExplanation(null);
     try {
-      for (const inc of incidents) {
+      if (rtdb) {
+        dbRemove(dbRef(rtdb, 'incidents')).catch(() => {});
+        for (const r of rooms) {
+          dbSet(dbRef(rtdb, `rooms/${r.id}`), { state: 'NORMAL', active_incident_id: null }).catch(() => {});
+        }
+      }
+    } catch {}
+    try {
+      for (const inc of prevIncs) {
         await fetch(`http://127.0.0.1:8000/api/incidents/${inc.id}/resolve`, { method: 'POST' });
       }
       for (const r of rooms) {
@@ -588,20 +660,8 @@ export default function OperationsCenter() {
           body: JSON.stringify({ state: 'NORMAL' })
         });
       }
-      setAllTelemetry(DEFAULT_ROOM_TELEMETRY);
-      setAudioEvent('NORMAL');
-      setDisabledSensors([]);
-      setForensicExplanation(null);
       await loadInitialData();
-    } catch (e) {
-      console.error('Reset error:', e);
-    }
-  };
-
-  const toggleSensorDisable = (sensor: string) => {
-    setDisabledSensors((prev) =>
-      prev.includes(sensor) ? prev.filter((s) => s !== sensor) : [...prev, sensor]
-    );
+    } catch {}
   };
 
   const renderSmoothSparkline = (data: number[], color: string) => {
@@ -620,7 +680,7 @@ export default function OperationsCenter() {
       .join(' ');
 
     return (
-      <div className="w-20 h-6 overflow-hidden flex items-center justify-end">
+      <div className="hidden sm:flex w-20 h-6 overflow-hidden items-center justify-end shrink-0">
         <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-hidden">
           <polyline
             points={points}
@@ -636,50 +696,73 @@ export default function OperationsCenter() {
   };
 
   const selectedRoomObj = rooms.find((r) => r.id === selectedRoomId) || rooms[0];
-  const activeAlertCount = incidents.filter((i) => i.status === 'ACTIVE').length;
+  const activeIncidents = incidents.filter((i) => i.status === 'ACTIVE' || !i.status);
+  const criticalIncidents = activeIncidents.filter((i) => i.severity === 'CRITICAL');
+  const warningIncidents = activeIncidents.filter((i) => i.severity !== 'CRITICAL');
+  const activeAlertCount = criticalIncidents.length;
+  const activeWarningCount = warningIncidents.length;
   const unitLabel = predictionVariable === 'temperature' ? '°C' : predictionVariable === 'gas' ? ' ppm' : '%';
 
   return (
-    <main className="min-h-screen pb-10">
+    <main className="min-h-screen pb-24 lg:pb-10 w-full max-w-[100vw] overflow-x-hidden">
       {/* =====================================================================
-          1. CLEAN TOP HEADER BAR
+          1. CLEAN TOP HEADER BAR (Mobile & Desktop Optimized)
          ===================================================================== */}
-      <header className="sticky top-0 z-40 border-b border-[var(--border-color)] bg-[var(--bg-surface)]/90 backdrop-blur-md">
-        <div className="max-w-[1560px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+      <header className="sticky top-0 z-40 border-b border-[var(--border-color)] bg-[var(--bg-surface)]/95 backdrop-blur-md">
+        <div className="max-w-[1560px] mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4">
           {/* Left: Brand & Clear Building Status */}
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2.5">
-              <div className="h-9 w-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-sm">
-                <Building2 className="h-5 w-5" />
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+            <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+              <div className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-sm">
+                <Building2 className="h-4 w-4 sm:h-5 sm:w-5" />
               </div>
               <div>
-                <span className="font-display font-bold text-lg tracking-tight text-[var(--text-primary)]">
+                <span className="font-display font-bold text-base sm:text-lg tracking-tight text-[var(--text-primary)]">
                   NEXUS
                 </span>
-                <span className="hidden sm:inline-block ml-2 text-xs text-[var(--text-muted)]">
+                <span className="hidden md:inline-block ml-2 text-xs text-[var(--text-muted)]">
                   Smart Building Monitor
                 </span>
               </div>
             </div>
 
-            <div className="h-5 w-[1px] bg-[var(--border-color)] hidden sm:block" />
+            <div className="h-5 w-[1px] bg-[var(--border-color)] hidden sm:block shrink-0" />
 
-            {/* Overall Building Status Pill */}
-            {activeAlertCount > 0 ? (
-              <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-xs font-semibold">
-                <span className="h-2 w-2 rounded-full bg-red-500 animate-ping" />
+            {/* Overall Building Status Pill (Differentiates Alerts vs Warnings) */}
+            {activeAlertCount > 0 && activeWarningCount > 0 ? (
+              <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+                <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-[11px] sm:text-xs font-semibold truncate">
+                  <span className="h-2 w-2 rounded-full bg-red-500 animate-ping shrink-0" />
+                  <span className="sm:hidden">{activeAlertCount} Alert{activeAlertCount > 1 ? 's' : ''}</span>
+                  <span className="hidden sm:inline">{activeAlertCount} Active Alert{activeAlertCount > 1 ? 's' : ''}</span>
+                </div>
+                <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-[11px] sm:text-xs font-semibold truncate">
+                  <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
+                  <span className="sm:hidden">{activeWarningCount} Warn</span>
+                  <span className="hidden sm:inline">{activeWarningCount} Active Warning{activeWarningCount > 1 ? 's' : ''}</span>
+                </div>
+              </div>
+            ) : activeAlertCount > 0 ? (
+              <div className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 rounded-full bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-[11px] sm:text-xs font-semibold truncate">
+                <span className="h-2 w-2 rounded-full bg-red-500 animate-ping shrink-0" />
                 <span>{activeAlertCount} Active Alert{activeAlertCount > 1 ? 's' : ''}</span>
               </div>
+            ) : activeWarningCount > 0 ? (
+              <div className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-[11px] sm:text-xs font-semibold truncate">
+                <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
+                <span>{activeWarningCount} Active Warning{activeWarningCount > 1 ? 's' : ''}</span>
+              </div>
             ) : (
-              <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-400 text-xs font-medium">
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                <span>All 9 Rooms Normal</span>
+              <div className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-400 text-[11px] sm:text-xs font-medium truncate">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+                <span className="sm:hidden">All Normal</span>
+                <span className="hidden sm:inline">All 9 Rooms Normal</span>
               </div>
             )}
           </div>
 
           {/* Right: Connection Status, Theme Switcher & Reset */}
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[var(--bg-subtle)] border border-[var(--border-color)] text-xs text-[var(--text-secondary)]">
               <span className={`h-2 w-2 rounded-full ${wsConnected || firebaseConnected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
               <span>{wsConnected ? 'Live Stream Connected' : firebaseConnected ? 'Cloud Synced' : 'Connecting...'}</span>
@@ -688,17 +771,18 @@ export default function OperationsCenter() {
             <button
               type="button"
               onClick={() => setTheme(theme === 'daylight' ? 'midnight' : 'daylight')}
-              className="px-3 py-1.5 rounded-xl bg-[var(--bg-subtle)] hover:bg-[var(--bg-muted)] border border-[var(--border-color)] text-xs font-medium text-[var(--text-primary)] flex items-center gap-1.5 transition"
+              className="p-2 sm:px-3 sm:py-1.5 rounded-xl bg-[var(--bg-subtle)] hover:bg-[var(--bg-muted)] border border-[var(--border-color)] text-xs font-medium text-[var(--text-primary)] flex items-center gap-1.5 transition"
+              title={theme === 'daylight' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
             >
               {theme === 'daylight' ? (
                 <>
-                  <Moon className="h-3.5 w-3.5 text-slate-600" />
-                  <span>Dark Mode</span>
+                  <Moon className="h-4 w-4 sm:h-3.5 sm:w-3.5 text-slate-600" />
+                  <span className="hidden sm:inline">Dark Mode</span>
                 </>
               ) : (
                 <>
-                  <Sun className="h-3.5 w-3.5 text-amber-400" />
-                  <span>Light Mode</span>
+                  <Sun className="h-4 w-4 sm:h-3.5 sm:w-3.5 text-amber-400" />
+                  <span className="hidden sm:inline">Light Mode</span>
                 </>
               )}
             </button>
@@ -706,11 +790,11 @@ export default function OperationsCenter() {
             <button
               type="button"
               onClick={handleResetSystem}
-              className="px-3.5 py-1.5 rounded-xl bg-[var(--bg-subtle)] hover:bg-[var(--bg-muted)] border border-[var(--border-color)] text-xs font-medium text-[var(--text-primary)] flex items-center gap-1.5 transition"
+              className="p-2 sm:px-3.5 sm:py-1.5 rounded-xl bg-[var(--bg-subtle)] hover:bg-[var(--bg-muted)] border border-[var(--border-color)] text-xs font-medium text-[var(--text-primary)] flex items-center gap-1.5 transition"
               title="Reset all rooms and alerts back to normal"
             >
-              <RotateCcw className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
-              <span>Reset Building</span>
+              <RotateCcw className="h-4 w-4 sm:h-3.5 sm:w-3.5 text-[var(--text-secondary)]" />
+              <span className="hidden sm:inline">Reset Building</span>
             </button>
           </div>
         </div>
@@ -720,8 +804,8 @@ export default function OperationsCenter() {
           2. SINGLE, SIMPLE ROOM SELECTOR BAR
          ===================================================================== */}
       <div className="border-b border-[var(--border-color)] bg-[var(--bg-surface)]/60">
-        <div className="max-w-[1560px] mx-auto px-4 sm:px-6 py-2.5 flex items-center gap-2 overflow-x-auto">
-          <span className="text-xs font-semibold text-[var(--text-muted)] mr-1 shrink-0">
+        <div className="max-w-[1560px] mx-auto px-3 sm:px-6 py-2 sm:py-2.5 flex items-center gap-2 overflow-x-auto no-scrollbar">
+          <span className="hidden sm:inline text-xs font-semibold text-[var(--text-muted)] mr-1 shrink-0">
             Rooms:
           </span>
           {FACILITY_ROOM_CONFIGS.map((cfg) => {
@@ -741,6 +825,8 @@ export default function OperationsCenter() {
                     ? 'bg-blue-600 text-white shadow-sm font-semibold'
                     : isAlert
                     ? 'bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30 font-semibold'
+                    : isWarn
+                    ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 font-semibold'
                     : 'bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-color)]'
                 }`}
               >
@@ -767,8 +853,8 @@ export default function OperationsCenter() {
         </div>
       </div>
 
-      {/* Emergency Siren Banner (Only shown when Siren is active) */}
-      {audioEvent === 'ALARM' && (
+      {/* Emergency Siren Banner (Only shown when Siren is active, excluded in classroom_01 for student privacy) */}
+      {audioEvent === 'ALARM' && selectedRoomId !== 'classroom_01' && (
         <div className="max-w-[1560px] mx-auto px-4 sm:px-6 mt-4">
           <div className="p-4 rounded-2xl bg-red-600 text-white shadow-lg flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -794,15 +880,90 @@ export default function OperationsCenter() {
       )}
 
       {/* =====================================================================
-          3. MAIN WORKSPACE (CLEAN 2-COLUMN LAYOUT)
+          3. MAIN WORKSPACE (MOBILE-FIRST + CLEAN 2-COLUMN DESKTOP)
          ===================================================================== */}
-      <div className="max-w-[1560px] mx-auto px-4 sm:px-6 pt-5 grid grid-cols-12 gap-6">
+      <div className="max-w-[1560px] mx-auto px-3 sm:px-6 pt-3 sm:pt-5 grid grid-cols-12 gap-3.5 sm:gap-6">
+        {/* Mobile-Only Priority Alert Card (Shown right at the top on phone when an alert/warning is active!) */}
+        {activeIncident && (
+          <div className="col-span-12 min-w-0 lg:hidden">
+            <div className="studio-card p-4">
+              <div className="flex items-center justify-between mb-2.5">
+                <h2 className="font-display font-bold text-sm text-[var(--text-primary)] flex items-center gap-2">
+                  <ShieldAlert className={`h-4 w-4 ${activeIncident.severity === 'CRITICAL' ? 'text-red-500' : 'text-amber-500'}`} />
+                  Safety & Alert Status
+                </h2>
+                <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
+                  activeIncident.severity === 'CRITICAL'
+                    ? 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/25'
+                    : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                }`}>
+                  {activeIncident.severity}
+                </span>
+              </div>
+
+              <div className={`p-3.5 rounded-2xl border ${
+                activeIncident.severity === 'CRITICAL'
+                  ? 'bg-red-500/10 border-red-500/25'
+                  : 'bg-amber-500/10 border-amber-500/30'
+              }`}>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <span className={`font-display font-bold text-xs sm:text-sm ${
+                    activeIncident.severity === 'CRITICAL'
+                      ? 'text-red-600 dark:text-red-400'
+                      : 'text-amber-700 dark:text-amber-400'
+                  }`}>
+                    {activeIncident.type.replace(/_/g, ' ')}
+                  </span>
+                  <span className={`text-[11px] font-semibold shrink-0 ${
+                    activeIncident.severity === 'CRITICAL'
+                      ? 'text-red-600 dark:text-red-400'
+                      : 'text-amber-600 dark:text-amber-400'
+                  }`}>
+                    {int_percentage(activeIncident.confidence)} Confidence
+                  </span>
+                </div>
+                <p className="text-xs text-[var(--text-primary)] leading-relaxed">
+                  {activeIncident.summary}
+                </p>
+
+                <div className="flex flex-wrap gap-2 mt-3">
+                  <button
+                    type="button"
+                    onClick={() => handleExplainIncident(activeIncident.id)}
+                    disabled={explainingIncidentId === activeIncident.id}
+                    className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5 transition"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    <span>{explainingIncidentId === activeIncident.id ? 'Analyzing...' : 'Explain with AI'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleResolveSingleIncident(activeIncident.id)}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 ml-auto transition"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    <span>Resolve</span>
+                  </button>
+                </div>
+
+                {forensicExplanation && (
+                  <div className="mt-3 p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] text-xs text-[var(--text-primary)] leading-relaxed">
+                    <strong className="block text-blue-600 dark:text-blue-400 mb-1">AI Explanation:</strong>
+                    {forensicExplanation}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* -------------------------------------------------------------------
             LEFT 7 COLUMNS: 3D BUILDING + SELECTED ROOM SENSORS + FORECAST
            ------------------------------------------------------------------- */}
-        <div className="col-span-12 lg:col-span-7 flex flex-col gap-5">
+        <div className={`col-span-12 lg:col-span-7 min-w-0 flex-col gap-3.5 sm:gap-5 ${mobileTab === 'ai' ? 'hidden lg:flex' : 'flex'}`}>
           {/* 1. Interactive 3D Building View */}
-          <div className="h-[420px] studio-card p-2">
+          <div className={`${mobileTab === 'sensors' ? 'hidden lg:block' : 'block'} ${mobileTab === '3d' ? 'h-[430px]' : 'h-[280px]'} sm:h-[420px] studio-card p-1.5 sm:p-2 min-w-0`}>
             <Building3D
               rooms={rooms}
               selectedRoomId={selectedRoomId}
@@ -812,101 +973,110 @@ export default function OperationsCenter() {
             />
           </div>
 
-          {/* 2. Selected Room Live Sensor Cards (4 Clear Cards) */}
-          <div>
-            <div className="flex items-center justify-between mb-3 px-1 flex-wrap gap-2">
-              <div className="flex items-center gap-2.5">
-                <h2 className="font-display font-bold text-base text-[var(--text-primary)]">
+          {/* 2. Selected Room Live Sensor Cards (2x2 Grid on Phone, Multi-Col on Desktop) */}
+          <div className={`min-w-0 ${mobileTab === '3d' ? 'hidden lg:block' : 'block'}`}>
+            <div className="flex items-center justify-between mb-2.5 sm:mb-3 px-1 flex-wrap gap-1.5 sm:gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="font-display font-bold text-sm sm:text-base text-[var(--text-primary)]">
                   {selectedRoomObj?.name} — Live Sensors
                 </h2>
-                {selectedRoomId === 'lab_02' && (
-                  isWokwiActive ? (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 animate-pulse">
+                {(selectedRoomId === 'lab_02' || selectedRoomId === 'classroom_01') && (
+                  activeWokwiRooms[selectedRoomId] || (selectedRoomId === 'lab_02' && isWokwiActive) ? (
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 animate-pulse">
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                       Wokwi Hardware Active
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                      Mesh Simulated
+                      Wokwi Node Ready
                     </span>
                   )
                 )}
               </div>
-              <span className="text-xs text-[var(--text-muted)]">
-                Floor {selectedRoomObj?.floor} • {selectedRoomId === 'lab_02' ? 'Physical Sensor Node' : 'Virtual Room Node'}
+              <span className="text-[11px] sm:text-xs text-[var(--text-muted)]">
+                Floor {selectedRoomObj?.floor} • {(selectedRoomId === 'lab_02' || selectedRoomId === 'classroom_01') ? 'ESP32 Node' : 'Virtual Node'}
+                {selectedRoomId === 'classroom_01' && ' • Mic Omitted'}
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3.5">
+            <div className={`grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 ${selectedRoomId === 'classroom_01' ? 'xl:grid-cols-4' : 'xl:grid-cols-5'} gap-2.5 sm:gap-3.5`}>
               {/* Card 1: Temperature & Climate */}
-              <div className="studio-card p-4 flex flex-col justify-between">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium text-[var(--text-secondary)] flex items-center gap-1.5">
-                    <Thermometer className={`h-4 w-4 ${temperature > 30 ? 'text-red-500' : 'text-rose-500'}`} />
-                    Temperature
+              <div className="studio-card p-3 sm:p-4 flex flex-col justify-between">
+                <div className="flex items-center justify-between gap-1 mb-1.5 sm:mb-2">
+                  <span className="text-[11px] sm:text-xs font-medium text-[var(--text-secondary)] flex items-center gap-1 sm:gap-1.5 truncate">
+                    <Thermometer className={`h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0 ${(temperature >= 45 || (temperature >= 32 && activeIncident?.severity === 'CRITICAL')) ? 'text-red-500' : temperature >= 32 ? 'text-amber-500' : 'text-rose-500'}`} />
+                    <span className="truncate">Temperature</span>
                   </span>
                   <span
-                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                      temperature > 30
+                    className={`text-[10px] font-semibold px-1.5 sm:px-2 py-0.5 rounded-full shrink-0 ${
+                      temperature >= 45 || (temperature >= 32 && activeIncident?.severity === 'CRITICAL')
                         ? 'bg-red-500/15 text-red-600 dark:text-red-400'
-                        : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                    }`}
-                  >
-                    {temperature > 30 ? 'High' : 'Normal'}
-                  </span>
-                </div>
-                <div className="flex items-end justify-between mt-1">
-                  <div>
-                    <div className="text-2xl font-display font-bold text-[var(--text-primary)] tnum">
-                      {temperature.toFixed(1)}°C
-                    </div>
-                    <div className="text-[11px] text-[var(--text-muted)] mt-0.5">
-                      Humidity: {humidity.toFixed(0)}% RH
-                    </div>
-                  </div>
-                  {renderSmoothSparkline(currentTelem.tempHistory || [temperature], temperature > 30 ? '#ef4444' : '#f43f5e')}
-                </div>
-              </div>
-
-              {/* Card 2: Gas & Air Quality */}
-              <div className="studio-card p-4 flex flex-col justify-between">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium text-[var(--text-secondary)] flex items-center gap-1.5">
-                    <Wind className={`h-4 w-4 ${gas > 300 ? 'text-amber-500' : 'text-teal-500'}`} />
-                    Gas & Air
-                  </span>
-                  <span
-                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                      gas > 300
+                        : temperature >= 32
                         ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
                         : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
                     }`}
                   >
-                    {gas > 300 ? 'Elevated' : 'Safe'}
+                    {temperature >= 45 || (temperature >= 32 && activeIncident?.severity === 'CRITICAL')
+                      ? 'Alert'
+                      : temperature >= 32
+                      ? 'Warm'
+                      : 'Normal'}
                   </span>
                 </div>
-                <div className="flex items-end justify-between mt-1">
+                <div className="flex items-end justify-between gap-1 mt-1">
                   <div>
-                    <div className="text-2xl font-display font-bold text-[var(--text-primary)] tnum">
-                      {gas.toFixed(0)} <span className="text-xs font-normal text-[var(--text-muted)]">ppm</span>
+                    <div className="text-xl sm:text-2xl font-display font-bold text-[var(--text-primary)] tnum">
+                      {temperature.toFixed(1)}°C
                     </div>
-                    <div className="text-[11px] text-[var(--text-muted)] mt-0.5">
-                      MQ-2 Air Monitor
+                    <div className="text-[10px] sm:text-[11px] text-[var(--text-muted)] mt-0.5">
+                      Humidity: {humidity.toFixed(0)}% RH
                     </div>
                   </div>
-                  {renderSmoothSparkline(currentTelem.gasHistory || [gas], gas > 300 ? '#f59e0b' : '#14b8a6')}
+                  {renderSmoothSparkline(currentTelem.tempHistory || [temperature], temperature >= 45 || (temperature >= 32 && activeIncident?.severity === 'CRITICAL') ? '#ef4444' : temperature >= 32 ? '#f59e0b' : '#f43f5e')}
                 </div>
               </div>
 
-              {/* Card 3: Optical Smoke Detector (Separated from Mic) */}
-              <div className="studio-card p-4 flex flex-col justify-between">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium text-[var(--text-secondary)] flex items-center gap-1.5">
-                    <Flame className={`h-4 w-4 ${smoke > 15 ? 'text-red-500 animate-pulse' : smoke > 5 ? 'text-amber-500' : 'text-orange-500'}`} />
-                    Smoke Detector
+              {/* Card 2: Gas & Air Quality */}
+              <div className="studio-card p-3 sm:p-4 flex flex-col justify-between">
+                <div className="flex items-center justify-between gap-1 mb-1.5 sm:mb-2">
+                  <span className="text-[11px] sm:text-xs font-medium text-[var(--text-secondary)] flex items-center gap-1 sm:gap-1.5 truncate">
+                    <Wind className={`h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0 ${gas > 350 ? 'text-red-500' : gas >= 160 ? 'text-amber-500' : 'text-teal-500'}`} />
+                    <span className="truncate">Gas & Air</span>
                   </span>
                   <span
-                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                    className={`text-[10px] font-semibold px-1.5 sm:px-2 py-0.5 rounded-full shrink-0 ${
+                      gas > 350
+                        ? 'bg-red-500/15 text-red-600 dark:text-red-400'
+                        : gas >= 160
+                        ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                        : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                    }`}
+                  >
+                    {gas > 350 ? 'Hazard' : gas >= 160 ? 'Elevated' : 'Safe'}
+                  </span>
+                </div>
+                <div className="flex items-end justify-between gap-1 mt-1">
+                  <div>
+                    <div className="text-xl sm:text-2xl font-display font-bold text-[var(--text-primary)] tnum">
+                      {gas.toFixed(0)} <span className="text-[11px] sm:text-xs font-normal text-[var(--text-muted)]">ppm</span>
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] text-[var(--text-muted)] mt-0.5">
+                      MQ-2 Air Monitor
+                    </div>
+                  </div>
+                  {renderSmoothSparkline(currentTelem.gasHistory || [gas], gas > 350 ? '#ef4444' : gas >= 160 ? '#f59e0b' : '#14b8a6')}
+                </div>
+              </div>
+
+              {/* Card 3: Optical Smoke Detector */}
+              <div className="studio-card p-3 sm:p-4 flex flex-col justify-between">
+                <div className="flex items-center justify-between gap-1 mb-1.5 sm:mb-2">
+                  <span className="text-[11px] sm:text-xs font-medium text-[var(--text-secondary)] flex items-center gap-1 sm:gap-1.5 truncate">
+                    <Flame className={`h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0 ${smoke > 15 ? 'text-red-500 animate-pulse' : smoke > 5 ? 'text-amber-500' : 'text-orange-500'}`} />
+                    <span className="truncate">Smoke</span>
+                  </span>
+                  <span
+                    className={`text-[10px] font-semibold px-1.5 sm:px-2 py-0.5 rounded-full shrink-0 ${
                       smoke > 15
                         ? 'bg-red-500/15 text-red-600 dark:text-red-400'
                         : smoke > 5
@@ -914,15 +1084,14 @@ export default function OperationsCenter() {
                         : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
                     }`}
                   >
-                    {smoke > 15 ? 'Dense Smoke' : smoke > 5 ? 'Elevated' : 'Clean Air'}
+                    {smoke > 15 ? 'Dense' : smoke > 5 ? 'Elevated' : 'Clean'}
                   </span>
                 </div>
                 <div className="mt-1">
-                  <div className="text-2xl font-display font-bold text-[var(--text-primary)] tnum">
-                    {smoke.toFixed(1)}% <span className="text-xs font-normal text-[var(--text-muted)]">smoke</span>
+                  <div className="text-xl sm:text-2xl font-display font-bold text-[var(--text-primary)] tnum">
+                    {smoke.toFixed(1)}% <span className="text-[11px] sm:text-xs font-normal text-[var(--text-muted)]">smoke</span>
                   </div>
-                  {/* Obscuration Level Bar Gauge */}
-                  <div className="w-full bg-[var(--bg-subtle)] rounded-full h-2 overflow-hidden my-2 border border-[var(--border-color)]">
+                  <div className="w-full bg-[var(--bg-subtle)] rounded-full h-1.5 sm:h-2 overflow-hidden my-1.5 sm:my-2 border border-[var(--border-color)]">
                     <div
                       className={`h-full transition-all duration-500 rounded-full ${
                         smoke > 15
@@ -935,124 +1104,127 @@ export default function OperationsCenter() {
                     />
                   </div>
                   <div className="flex justify-between items-center text-[10px] text-[var(--text-muted)]">
-                    <span>Photoelectric Sensor</span>
-                    <span>Threshold: 15%</span>
+                    <span className="truncate">Optical</span>
+                    <span>Max: 15%</span>
                   </div>
                 </div>
               </div>
 
-              {/* Card 4: Acoustic Intelligence & Microphone (Separated from Smoke) */}
-              <div className={`studio-card p-4 flex flex-col justify-between transition-all ${
-                audioEvent === 'ALARM'
-                  ? 'border-red-500 shadow-md shadow-red-500/10'
-                  : audioEvent === 'SPEECH'
-                  ? 'border-violet-500 shadow-md shadow-violet-500/10'
-                  : ''
-              }`}>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium text-[var(--text-secondary)] flex items-center gap-1.5">
-                    <Mic className={`h-4 w-4 ${
-                      audioEvent === 'ALARM'
-                        ? 'text-red-500 animate-pulse'
-                        : audioEvent === 'SPEECH'
-                        ? 'text-violet-500 animate-pulse'
-                        : 'text-indigo-500'
-                    }`} />
-                    Microphone & VAD
-                  </span>
-                  <span
-                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                      audioEvent === 'ALARM'
-                        ? 'bg-red-500/20 text-red-600 dark:text-red-400 animate-pulse font-bold'
-                        : audioEvent === 'SPEECH'
-                        ? 'bg-violet-500/20 text-violet-600 dark:text-violet-400 font-bold'
-                        : audioEvent === 'IMPACT'
-                        ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400'
-                        : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                    }`}
-                  >
-                    {audioEvent === 'ALARM' ? 'Siren Alarm' : audioEvent === 'SPEECH' ? 'Voice Active' : audioEvent === 'IMPACT' ? 'Impact Noise' : 'Quiet Ambient'}
-                  </span>
-                </div>
-                <div className="mt-1">
-                  <div className="flex items-baseline justify-between">
-                    <div className="text-2xl font-display font-bold text-[var(--text-primary)] tracking-wide">
-                      {audioEvent}
-                    </div>
-                    <span className="text-[10px] font-mono font-medium text-[var(--text-muted)]">
-                      {(audioRms * 1000).toFixed(1)} mVRMS
+              {/* Card 4: Acoustic Intelligence & Microphone (Omitted in Classroom 01 for privacy) */}
+              {selectedRoomId !== 'classroom_01' && (
+                <div className={`studio-card p-3 sm:p-4 flex flex-col justify-between transition-all ${
+                  audioEvent === 'ALARM'
+                    ? 'border-red-500 shadow-md shadow-red-500/10'
+                    : audioEvent === 'SPEECH'
+                    ? 'border-violet-500 shadow-md shadow-violet-500/10'
+                    : ''
+                }`}>
+                  <div className="flex items-center justify-between gap-1 mb-1.5 sm:mb-2">
+                    <span className="text-[11px] sm:text-xs font-medium text-[var(--text-secondary)] flex items-center gap-1 sm:gap-1.5 truncate">
+                      <Mic className={`h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0 ${
+                        audioEvent === 'ALARM'
+                          ? 'text-red-500 animate-pulse'
+                          : audioEvent === 'SPEECH'
+                          ? 'text-violet-500 animate-pulse'
+                          : 'text-indigo-500'
+                      }`} />
+                      <span className="truncate">Microphone</span>
+                    </span>
+                    <span
+                      className={`text-[10px] font-semibold px-1.5 sm:px-2 py-0.5 rounded-full shrink-0 ${
+                        audioEvent === 'ALARM'
+                          ? 'bg-red-500/20 text-red-600 dark:text-red-400 animate-pulse font-bold'
+                          : audioEvent === 'SPEECH'
+                          ? 'bg-violet-500/20 text-violet-600 dark:text-violet-400 font-bold'
+                          : audioEvent === 'IMPACT'
+                          ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400'
+                          : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                      }`}
+                    >
+                      {audioEvent === 'ALARM' ? 'Siren' : audioEvent === 'SPEECH' ? 'Voice' : audioEvent === 'IMPACT' ? 'Impact' : 'Quiet'}
                     </span>
                   </div>
-                  {/* Real-Time 5-Band Dynamic Equalizer Visualizer */}
-                  <div className="flex items-end gap-1 h-3.5 mt-1.5 mb-1">
-                    {[0.0018, 0.0035, 0.007, 0.015, 0.035].map((thresh, idx) => {
-                      const active = audioRms >= thresh;
-                      let barColor = 'bg-[var(--border-color)] h-1';
-                      if (active) {
-                        if (audioEvent === 'SPEECH') barColor = 'bg-violet-500 h-3.5';
-                        else if (audioEvent === 'ALARM') barColor = 'bg-red-500 h-3.5';
-                        else barColor = 'bg-emerald-500 h-2.5';
-                      }
-                      return (
-                        <div
-                          key={idx}
-                          className={'w-2 rounded-full transition-all duration-100 ' + barColor}
-                        />
-                      );
-                    })}
-                  </div>
-                  <div className="text-[11px] text-[var(--text-muted)] flex items-center gap-1.5">
-                    <span className={`inline-block h-2 w-2 rounded-full ${
-                      audioEvent === 'SPEECH' ? 'bg-violet-500 animate-ping' :
-                      audioEvent === 'ALARM' ? 'bg-red-500 animate-ping' :
-                      'bg-emerald-500'
-                    }`} />
-                    Real-Time Acoustic DSP (16kHz)
+                  <div className="mt-1">
+                    <div className="flex items-baseline justify-between gap-1">
+                      <div className="text-xl sm:text-2xl font-display font-bold text-[var(--text-primary)] tracking-wide">
+                        {audioEvent}
+                      </div>
+                      <span className="text-[9px] sm:text-[10px] font-mono font-medium text-[var(--text-muted)]">
+                        {(audioRms * 1000).toFixed(1)} mV
+                      </span>
+                    </div>
+                    <div className="flex items-end gap-1 h-3 sm:h-3.5 mt-1.5 mb-1">
+                      {[0.0018, 0.0035, 0.007, 0.015, 0.035].map((thresh, idx) => {
+                        const active = audioRms >= thresh;
+                        let barColor = 'bg-[var(--border-color)] h-1';
+                        if (active) {
+                          if (audioEvent === 'SPEECH') barColor = 'bg-violet-500 h-3 sm:h-3.5';
+                          else if (audioEvent === 'ALARM') barColor = 'bg-red-500 h-3 sm:h-3.5';
+                          else barColor = 'bg-emerald-500 h-2.5';
+                        }
+                        return (
+                          <div
+                            key={idx}
+                            className={'w-2 rounded-full transition-all duration-100 ' + barColor}
+                          />
+                        );
+                      })}
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] text-[var(--text-muted)] flex items-center gap-1.5 truncate">
+                      <span className={`inline-block h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full shrink-0 ${
+                        audioEvent === 'SPEECH' ? 'bg-violet-500 animate-ping' :
+                        audioEvent === 'ALARM' ? 'bg-red-500 animate-ping' :
+                        'bg-emerald-500'
+                      }`} />
+                      <span className="truncate">Acoustic DSP (16kHz)</span>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
-              {/* Card 5: People In Front & Live Camera (Click to open camera modal) */}
+              {/* Card 5: People In Front & Live Camera */}
               <div
                 onClick={() => setSnapshotModalOpen(true)}
-                className="studio-card p-4 flex flex-col justify-between cursor-pointer group hover:border-emerald-500/60 hover:shadow-lg transition-all"
+                className={`studio-card p-3 sm:p-4 flex flex-col justify-between cursor-pointer group hover:border-emerald-500/60 hover:shadow-lg transition-all ${
+                  selectedRoomId !== 'classroom_01' ? 'col-span-2 sm:col-span-1' : ''
+                }`}
                 title="Click to open 45 FPS Edge Camera Feed"
               >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium text-[var(--text-secondary)] flex items-center gap-1.5">
-                    <Eye className="h-4 w-4 text-emerald-500 group-hover:scale-110 transition-transform" />
-                    People In Front
+                <div className="flex items-center justify-between gap-1 mb-1.5 sm:mb-2">
+                  <span className="text-[11px] sm:text-xs font-medium text-[var(--text-secondary)] flex items-center gap-1 sm:gap-1.5 truncate">
+                    <Eye className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-500 group-hover:scale-110 transition-transform shrink-0" />
+                    <span className="truncate">People In Front</span>
                   </span>
                   <span
-                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                    className={`text-[10px] font-semibold px-1.5 sm:px-2 py-0.5 rounded-full shrink-0 ${
                       occupancy > 0
                         ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold'
                         : 'bg-slate-500/10 text-slate-500'
                     }`}
                   >
-                    {occupancy > 0 ? 'OCCUPIED' : 'ZONE CLEAR'}
+                    {occupancy > 0 ? 'OCCUPIED' : 'CLEAR'}
                   </span>
                 </div>
 
-                <div className="my-1">
-                  <div className="text-3xl font-display font-extrabold text-[var(--text-primary)] tnum tracking-tight flex items-baseline gap-1.5">
+                <div className="my-0.5 sm:my-1">
+                  <div className="text-2xl sm:text-3xl font-display font-extrabold text-[var(--text-primary)] tnum tracking-tight flex items-baseline gap-1.5">
                     {occupancy}
-                    <span className="text-xs font-normal text-[var(--text-muted)]">
-                      {occupancy === 1 ? 'person in front' : 'people in front'}
+                    <span className="text-[11px] sm:text-xs font-normal text-[var(--text-muted)]">
+                      {occupancy === 1 ? 'person' : 'people'}
                     </span>
                   </div>
-                  <p className="text-[11px] text-[var(--text-muted)] truncate mt-0.5">
-                    {occupancy > 0 ? 'Human subject identified in camera view' : 'No subjects detected in zone'}
+                  <p className="text-[10px] sm:text-[11px] text-[var(--text-muted)] truncate mt-0.5">
+                    {occupancy > 0 ? 'Subject identified in view' : 'No subjects in zone'}
                   </p>
                 </div>
 
-                <div className="pt-2 border-t border-[var(--border-color)] mt-1 flex items-center justify-between text-xs text-emerald-600 dark:text-emerald-400 font-medium group-hover:text-emerald-500">
-                  <span className="flex items-center gap-1 text-[11px]">
+                <div className="pt-1.5 sm:pt-2 border-t border-[var(--border-color)] mt-1 flex items-center justify-between text-xs text-emerald-600 dark:text-emerald-400 font-medium group-hover:text-emerald-500">
+                  <span className="flex items-center gap-1 text-[10px] sm:text-[11px]">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping"></span>
-                    45 FPS Live Feed
+                    45 FPS Live
                   </span>
-                  <span className="flex items-center gap-1 text-[11px] text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]">
-                    <Maximize2 className="h-3 w-3" /> Open Camera
+                  <span className="flex items-center gap-1 text-[10px] sm:text-[11px] text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]">
+                    <Maximize2 className="h-3 w-3" /> Camera
                   </span>
                 </div>
               </div>
@@ -1060,29 +1232,29 @@ export default function OperationsCenter() {
           </div>
 
           {/* 3. 15-Minute Forecast Card */}
-          <div className="studio-card p-5">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <div className={`studio-card p-3.5 sm:p-5 min-w-0 ${mobileTab === '3d' ? 'hidden lg:block' : 'block'}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2.5 mb-3.5 sm:mb-4">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                <div className="p-2 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 shrink-0">
                   <ArrowUpRight className="h-4 w-4" />
                 </div>
                 <div>
-                  <h3 className="font-display font-bold text-sm text-[var(--text-primary)]">
+                  <h3 className="font-display font-bold text-xs sm:text-sm text-[var(--text-primary)]">
                     15-Minute Forecast — {selectedRoomObj?.name}
                   </h3>
-                  <p className="text-xs text-[var(--text-muted)]">
+                  <p className="text-[11px] sm:text-xs text-[var(--text-muted)]">
                     Predicted short-term trend based on recent sensor readings
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-1 bg-[var(--bg-subtle)] p-1 rounded-xl border border-[var(--border-color)] text-xs">
+              <div className="flex items-center gap-1 bg-[var(--bg-subtle)] p-1 rounded-xl border border-[var(--border-color)] text-[11px] sm:text-xs w-full sm:w-auto justify-between sm:justify-start">
                 {(['temperature', 'gas', 'humidity'] as const).map((v) => (
                   <button
                     key={v}
                     type="button"
                     onClick={() => setPredictionVariable(v)}
-                    className={`px-3 py-1 rounded-lg font-medium capitalize transition ${
+                    className={`flex-1 sm:flex-initial px-2.5 sm:px-3 py-1 rounded-lg font-medium capitalize transition ${
                       predictionVariable === v
                         ? 'bg-blue-600 text-white shadow-sm'
                         : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
@@ -1094,18 +1266,18 @@ export default function OperationsCenter() {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
               {(['+1m', '+5m', '+15m'] as const).map((horizon) => {
                 const hData = prediction?.horizons?.[horizon];
                 const predVal =
                   hData?.predicted ??
                   (predictionVariable === 'temperature' ? temperature : predictionVariable === 'gas' ? gas : humidity);
-                const label = horizon === '+1m' ? 'In 1 Minute' : horizon === '+5m' ? 'In 5 Minutes' : 'In 15 Minutes';
+                const label = horizon === '+1m' ? 'In 1 Min' : horizon === '+5m' ? 'In 5 Mins' : 'In 15 Mins';
 
                 return (
-                  <div key={horizon} className="studio-subcard p-3.5 text-center">
-                    <div className="text-xs text-[var(--text-muted)] font-medium">{label}</div>
-                    <div className="text-xl font-display font-bold text-[var(--text-primary)] mt-1 tnum">
+                  <div key={horizon} className="studio-subcard p-2.5 sm:p-3.5 text-center">
+                    <div className="text-[11px] sm:text-xs text-[var(--text-muted)] font-medium">{label}</div>
+                    <div className="text-base sm:text-xl font-display font-bold text-[var(--text-primary)] mt-1 tnum">
                       {predVal.toFixed(1)}{unitLabel}
                     </div>
                   </div>
@@ -1122,18 +1294,28 @@ export default function OperationsCenter() {
         </div>
 
         {/* -------------------------------------------------------------------
-            RIGHT 5 COLUMNS: SAFETY STATUS & AI / SIMULATOR TOOLS
+            RIGHT 5 COLUMNS: SAFETY STATUS & AI ASSISTANT
            ------------------------------------------------------------------- */}
-        <div className="col-span-12 lg:col-span-5 flex flex-col gap-5">
-          {/* 1. Safety & Active Alert Card */}
-          <div className="studio-card p-5">
+        <div className={`col-span-12 lg:col-span-5 min-w-0 flex-col gap-3.5 sm:gap-5 ${mobileTab === '3d' ? 'hidden lg:flex' : 'flex'}`}>
+          {/* 1. Safety & Active Alert Card (Hidden on mobile when activeIncident is already shown at the very top) */}
+          <div className={`studio-card p-4 sm:p-5 min-w-0 ${activeIncident || mobileTab === 'ai' ? 'hidden lg:block' : ''}`}>
             <div className="flex items-center justify-between mb-3">
-              <h2 className="font-display font-bold text-base text-[var(--text-primary)] flex items-center gap-2">
-                <ShieldAlert className={`h-5 w-5 ${activeIncident ? 'text-red-500' : 'text-emerald-500'}`} />
+              <h2 className="font-display font-bold text-sm sm:text-base text-[var(--text-primary)] flex items-center gap-2">
+                <ShieldAlert className={`h-5 w-5 ${
+                  activeIncident
+                    ? activeIncident.severity === 'CRITICAL'
+                      ? 'text-red-500'
+                      : 'text-amber-500'
+                    : 'text-emerald-500'
+                }`} />
                 Safety & Alert Status
               </h2>
               {activeIncident && (
-                <span className="px-2.5 py-0.5 rounded-full bg-red-500/15 text-red-600 dark:text-red-400 text-xs font-bold">
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${
+                  activeIncident.severity === 'CRITICAL'
+                    ? 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/25'
+                    : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                }`}>
                   {activeIncident.severity}
                 </span>
               )}
@@ -1141,12 +1323,24 @@ export default function OperationsCenter() {
 
             {activeIncident ? (
               <div className="space-y-4">
-                <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/25">
+                <div className={`p-4 rounded-2xl border ${
+                  activeIncident.severity === 'CRITICAL'
+                    ? 'bg-red-500/10 border-red-500/25'
+                    : 'bg-amber-500/10 border-amber-500/30'
+                }`}>
                   <div className="flex items-center justify-between mb-1">
-                    <span className="font-display font-bold text-sm text-red-600 dark:text-red-400">
+                    <span className={`font-display font-bold text-sm ${
+                      activeIncident.severity === 'CRITICAL'
+                        ? 'text-red-600 dark:text-red-400'
+                        : 'text-amber-700 dark:text-amber-400'
+                    }`}>
                       {activeIncident.type.replace(/_/g, ' ')}
                     </span>
-                    <span className="text-xs font-semibold text-red-600 dark:text-red-400">
+                    <span className={`text-xs font-semibold ${
+                      activeIncident.severity === 'CRITICAL'
+                        ? 'text-red-600 dark:text-red-400'
+                        : 'text-amber-600 dark:text-amber-400'
+                    }`}>
                       {int_percentage(activeIncident.confidence)} Confidence
                     </span>
                   </div>
@@ -1198,7 +1392,7 @@ export default function OperationsCenter() {
                 {activeIncident.evidence && activeIncident.evidence.length > 0 && (
                   <div>
                     <div className="text-xs font-semibold text-[var(--text-secondary)] mb-2">
-                      Why this alert triggered:
+                      {activeIncident.severity === 'CRITICAL' ? 'Why this alert triggered:' : 'Why this warning triggered:'}
                     </div>
                     <div className="space-y-2">
                       {activeIncident.evidence.map((ev, idx) => (
@@ -1217,248 +1411,174 @@ export default function OperationsCenter() {
                 )}
               </div>
             ) : (
-              <div className="studio-subcard p-5 flex items-center gap-4">
-                <div className="p-3 rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-                  <ShieldCheck className="h-7 w-7" />
+              <div className="studio-subcard p-4 sm:p-5 flex items-center gap-3.5 sm:gap-4">
+                <div className="p-2.5 sm:p-3 rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 shrink-0">
+                  <ShieldCheck className="h-6 w-6 sm:h-7 sm:w-7" />
                 </div>
                 <div>
                   <div className="font-display font-bold text-sm text-[var(--text-primary)]">
                     Everything Looks Good
                   </div>
                   <p className="text-xs text-[var(--text-secondary)] mt-0.5 leading-relaxed">
-                    No active safety alerts. Temperature, air quality, camera, and audio sensors are all within normal ranges.
+                    {selectedRoomId === 'classroom_01'
+                      ? 'No active safety alerts. Temperature, air quality, and camera sensors are all within normal ranges (Microphone disabled for student privacy).'
+                      : 'No active safety alerts. Temperature, air quality, camera, and audio sensors are all within normal ranges.'}
                   </p>
                 </div>
               </div>
             )}
           </div>
 
-          {/* 2. Interactive Assistant & Scenario Simulator Card */}
-          <div className="studio-card p-5 flex-1 flex flex-col">
-            {/* Simple 2-Tab Switcher */}
-            <div className="flex items-center gap-2 p-1 rounded-xl bg-[var(--bg-subtle)] border border-[var(--border-color)] mb-4">
-              <button
-                type="button"
-                onClick={() => setRightToolTab('assistant')}
-                className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition ${
-                  rightToolTab === 'assistant'
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                }`}
-              >
-                <MessageSquare className="h-3.5 w-3.5" />
-                <span>AI Assistant</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setRightToolTab('simulation')}
-                className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition ${
-                  rightToolTab === 'simulation'
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                }`}
-              >
-                <Sliders className="h-3.5 w-3.5" />
-                <span>Scenario Simulator</span>
-              </button>
+          {/* 2. Interactive AI Assistant Card */}
+          <div className={`studio-card p-3.5 sm:p-5 flex-1 flex flex-col min-w-0 ${mobileTab === 'sensors' ? 'hidden lg:flex' : 'flex'}`}>
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-[var(--border-color)]">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-blue-500/10 text-blue-500">
+                  <Sparkles className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-semibold text-[var(--text-primary)]">NEXUS AI Assistant</h3>
+                  <p className="text-[11px] text-[var(--text-secondary)]">Natural-language facility intelligence</p>
+                </div>
+              </div>
+              <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
+                health?.ai_engine.offline_reasoning
+                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                  : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+              }`}>
+                {health?.ai_engine.offline_reasoning ? 'Local Expert' : 'Gemini Active'}
+              </span>
             </div>
 
-            {rightToolTab === 'assistant' ? (
-              <div className="flex-1 flex flex-col">
-                {/* Chat Messages */}
-                <div className="flex-1 studio-subcard p-3.5 overflow-y-auto max-h-[290px] space-y-3">
-                  {chatMessages.map((msg, idx) => (
-                    <div
-                      key={idx}
-                      className={`p-3 rounded-2xl text-xs leading-relaxed ${
-                        msg.role === 'user'
-                          ? 'bg-blue-600 text-white ml-8'
-                          : 'bg-[var(--bg-surface)] border border-[var(--border-color)] text-[var(--text-primary)] mr-6'
-                      }`}
-                    >
-                      {msg.text}
-                    </div>
-                  ))}
-                  {aiLoading && (
-                    <div className="text-xs text-[var(--text-muted)] flex items-center gap-2 p-2">
-                      <Sparkles className="h-4 w-4 animate-spin text-blue-500" />
-                      <span>Thinking...</span>
-                    </div>
-                  )}
-                  <div ref={chatEndRef} />
-                </div>
-
-                {/* Suggested Questions */}
-                <div className="flex flex-wrap gap-1.5 my-3">
-                  {[
-                    'Why is Lab 02 highlighted?',
-                    'Are all rooms safe right now?',
-                    'Compare Server Room and Classroom 01'
-                  ].map((prompt) => (
-                    <button
-                      key={prompt}
-                      type="button"
-                      onClick={() => handleAsk(prompt)}
-                      className="text-xs px-3 py-1.5 rounded-full bg-[var(--bg-subtle)] hover:bg-[var(--bg-muted)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition"
-                    >
-                      {prompt}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Chat Input */}
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={question}
-                    onChange={(e) => setQuestion(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAsk()}
-                    placeholder="Ask a question about any room..."
-                    className="flex-1 bg-[var(--bg-subtle)] border border-[var(--border-color)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-blue-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={toggleSpeechRecognition}
-                    className={`p-2.5 rounded-xl border transition ${
-                      isListening
-                        ? 'bg-red-500 text-white border-red-400 animate-pulse'
-                        : 'bg-[var(--bg-subtle)] border-[var(--border-color)] text-[var(--text-secondary)]'
+            <div className="flex-1 flex flex-col min-w-0">
+              {/* Chat Messages */}
+              <div ref={chatScrollRef} className="flex-1 studio-subcard p-3 sm:p-3.5 overflow-y-auto max-h-[280px] sm:max-h-[320px] space-y-2.5 sm:space-y-3">
+                {chatMessages.map((msg, idx) => (
+                  <div
+                    key={idx}
+                    className={`p-3 rounded-2xl text-xs leading-relaxed whitespace-pre-wrap break-words ${
+                      msg.role === 'user'
+                        ? 'bg-blue-600 text-white ml-6 sm:ml-8 shadow-sm'
+                        : 'bg-[var(--bg-surface)] border border-[var(--border-color)] text-[var(--text-primary)] mr-4 sm:mr-6'
                     }`}
-                    title="Voice input"
                   >
-                    {isListening ? <Volume2 className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleAsk()}
-                    disabled={aiLoading}
-                    className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-50"
-                  >
-                    <Send className="h-3.5 w-3.5" />
-                  </button>
-                </div>
+                    {msg.role === 'assistant' && (
+                      <div className="flex items-center gap-1.5 mb-1.5 text-[10px] font-semibold text-blue-600 dark:text-blue-400">
+                        <Sparkles className="h-3 w-3" />
+                        <span>{msg.offline ? 'Local Expert' : 'Gemini AI'}</span>
+                      </div>
+                    )}
+                    {msg.text}
+                  </div>
+                ))}
+                {aiLoading && (
+                  <div className="text-xs text-[var(--text-muted)] flex items-center gap-2 p-2">
+                    <Sparkles className="h-4 w-4 animate-spin text-blue-500" />
+                    <span>Thinking...</span>
+                  </div>
+                )}
+                <div ref={chatEndRef} />
               </div>
-            ) : (
-              /* SCENARIO SIMULATOR TAB */
-              <div className="space-y-4">
-                <p className="text-xs text-[var(--text-secondary)]">
-                  Test how the building responds to emergencies. Pick a quick scenario below or adjust the sliders for <strong>{selectedRoomObj?.name}</strong>:
-                </p>
 
-                {/* Quick Preset Buttons */}
-                <div className="grid grid-cols-2 gap-2">
-                  {QUICK_SCENARIOS.map((preset) => (
-                    <button
-                      key={preset.label}
-                      type="button"
-                      onClick={() => handleRunSimulation(preset)}
-                      disabled={simExecuting}
-                      className="p-2.5 rounded-xl bg-[var(--bg-subtle)] hover:bg-[var(--bg-muted)] border border-[var(--border-color)] text-left text-xs font-semibold text-[var(--text-primary)] transition flex items-center justify-between"
-                    >
-                      <span>{preset.label}</span>
-                      <Play className="h-3 w-3 text-blue-500 shrink-0" />
-                    </button>
-                  ))}
-                </div>
+              {/* Suggested Questions */}
+              <div className="flex flex-wrap gap-1.5 my-2.5 sm:my-3">
+                {[
+                  'Why is Lab 02 highlighted?',
+                  'Are all rooms safe right now?',
+                  'Compare Server Room and Classroom 01'
+                ].map((prompt) => (
+                  <button
+                    key={prompt}
+                    type="button"
+                    onClick={() => handleAsk(prompt)}
+                    className="text-[11px] sm:text-xs px-2.5 sm:px-3 py-1.5 rounded-full bg-[var(--bg-subtle)] hover:bg-[var(--bg-muted)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition"
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
 
-                {/* Custom Sliders */}
-                <div className="studio-subcard p-3.5 space-y-3">
-                  <div>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-[var(--text-secondary)]">Add Heat</span>
-                      <span className="font-semibold text-[var(--text-primary)]">+{simTempDelta}°C</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="40"
-                      value={simTempDelta}
-                      onChange={(e) => setSimTempDelta(Number(e.target.value))}
-                      className="w-full cursor-pointer"
-                    />
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-[var(--text-secondary)]">Add Gas</span>
-                      <span className="font-semibold text-[var(--text-primary)]">+{simGasDelta} ppm</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="600"
-                      value={simGasDelta}
-                      onChange={(e) => setSimGasDelta(Number(e.target.value))}
-                      className="w-full cursor-pointer"
-                    />
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-[var(--text-secondary)]">Add Smoke</span>
-                      <span className="font-semibold text-[var(--text-primary)]">+{simSmokeDelta}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="80"
-                      value={simSmokeDelta}
-                      onChange={(e) => setSimSmokeDelta(Number(e.target.value))}
-                      className="w-full cursor-pointer"
-                    />
-                  </div>
-                </div>
-
-                {/* Optional: Turn Off Sensors to test backup resilience */}
-                <div>
-                  <div className="text-xs font-medium text-[var(--text-secondary)] mb-1.5">
-                    Test Sensor Failure (Click to turn off a sensor):
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {(['smoke', 'gas', 'camera', 'microphone'] as const).map((sensor) => {
-                      const isOff = disabledSensors.includes(sensor);
-                      return (
-                        <button
-                          key={sensor}
-                          type="button"
-                          onClick={() => toggleSensorDisable(sensor)}
-                          className={`px-3 py-1 rounded-lg text-xs font-medium capitalize border transition ${
-                            isOff
-                              ? 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30'
-                              : 'bg-[var(--bg-subtle)] text-[var(--text-secondary)] border-[var(--border-color)]'
-                          }`}
-                        >
-                          {sensor}: {isOff ? 'Off' : 'On'}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
+              {/* Chat Input (16px font on mobile prevents iOS/Android auto-zoom on focus) */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={question}
+                  onChange={(e) => setQuestion(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAsk()}
+                  placeholder="Ask a question about any room..."
+                  className="flex-1 min-w-0 bg-[var(--bg-subtle)] border border-[var(--border-color)] rounded-xl px-3.5 py-2.5 text-base sm:text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-blue-500"
+                />
                 <button
                   type="button"
-                  onClick={() => handleRunSimulation()}
-                  disabled={simExecuting}
-                  className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-sm transition disabled:opacity-50"
+                  onClick={toggleSpeechRecognition}
+                  className={`p-2.5 rounded-xl border shrink-0 transition ${
+                    isListening
+                      ? 'bg-red-500 text-white border-red-400 animate-pulse'
+                      : 'bg-[var(--bg-subtle)] border-[var(--border-color)] text-[var(--text-secondary)]'
+                  }`}
+                  title="Voice input"
                 >
-                  <Play className="h-3.5 w-3.5 fill-current" />
-                  <span>{simExecuting ? 'Running Simulation...' : 'Run Custom Simulation'}</span>
+                  {isListening ? <Volume2 className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAsk()}
+                  disabled={aiLoading}
+                  className="px-3.5 sm:px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5 shrink-0 transition disabled:opacity-50"
+                >
+                  <Send className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
                 </button>
               </div>
-            )}
+            </div>
           </div>
         </div>
       </div>
 
       {/* =====================================================================
+          MOBILE-ONLY BOTTOM NAVIGATION BAR (Native App Experience on Phone)
+         ===================================================================== */}
+      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-[var(--border-color)] bg-[var(--bg-surface)]/95 backdrop-blur-md px-2 py-1.5">
+        <div className="grid grid-cols-4 gap-1 max-w-md mx-auto">
+          {([
+            { id: 'overview', label: 'All Views', icon: Building2 },
+            { id: '3d', label: '3D Twin', icon: Maximize2 },
+            { id: 'sensors', label: 'Sensors', icon: Thermometer },
+            { id: 'ai', label: 'AI Chat', icon: MessageSquare },
+          ] as const).map((tab) => {
+            const Icon = tab.icon;
+            const active = mobileTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => {
+                  setMobileTab(tab.id);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className={`flex flex-col items-center justify-center py-1.5 rounded-xl text-[11px] font-semibold transition ${
+                  active
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                <Icon className="h-4 w-4 mb-0.5" />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      {/* =====================================================================
           4. LIVE CAMERA MODAL
          ===================================================================== */}
       {snapshotModalOpen && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="studio-card max-w-2xl w-full p-5 flex flex-col gap-4">
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
+          <div className="studio-card max-w-2xl w-full p-4 sm:p-5 flex flex-col gap-3.5 sm:gap-4">
             <div className="flex items-center justify-between">
-              <h3 className="font-display font-bold text-base text-[var(--text-primary)] flex items-center gap-2">
-                <Eye className="h-5 w-5 text-emerald-500" />
+              <h3 className="font-display font-bold text-sm sm:text-base text-[var(--text-primary)] flex items-center gap-2">
+                <Eye className="h-4 w-4 sm:h-5 sm:w-5 text-emerald-500" />
                 Live Camera — {selectedRoomObj?.name} (45 FPS)
               </h3>
               <button
@@ -1470,7 +1590,7 @@ export default function OperationsCenter() {
               </button>
             </div>
 
-            <div className="rounded-xl overflow-hidden bg-black flex items-center justify-center min-h-[340px]">
+            <div className="rounded-xl overflow-hidden bg-black flex items-center justify-center min-h-[220px] sm:min-h-[340px]">
               <img
                 src={`http://127.0.0.1:8000/api/vision/stream/${selectedRoomId}`}
                 alt="Live Camera Stream"

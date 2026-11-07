@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field, ConfigDict
 class SensorReadingCreate(BaseModel):
     device_id: Optional[str] = "esp32_lab02"
     room_id: Optional[str] = "lab_02"
-    sensor_type: str = Field(..., description="temperature, humidity, gas, smoke, motion, light, vibration")
+    sensor_type: str = Field(..., description="temperature, humidity, gas, smoke, motion, light")
     value: float
     unit: str = ""
     timestamp: Optional[datetime.datetime] = None
@@ -81,6 +81,7 @@ class AIQuestionRequest(BaseModel):
     question: str
     room_id: Optional[str] = None
     incident_id: Optional[str] = None
+    history: Optional[List[Dict[str, str]]] = []
 
 class AIQuestionResponse(BaseModel):
     answer: str

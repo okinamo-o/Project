@@ -1,0 +1,5 @@
+[wokwi]
+version = 1
+# Compiled with: powershell -File tools\build_firmware.ps1
+firmware = "build/sketch.ino.merged.bin"
+elf = "build/sketch.ino.elf"

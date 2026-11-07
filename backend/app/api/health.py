@@ -2,6 +2,7 @@ import os
 import time
 from fastapi import APIRouter
 from backend.app.core.config import settings
+from backend.app.services.gemini_service import gemini_service
 
 router = APIRouter()
 
@@ -11,7 +12,8 @@ _START_TIME = time.time()
 async def health_check():
     """System health and operational status endpoint."""
     uptime_seconds = int(time.time() - _START_TIME)
-    ai_status = "ONLINE" if settings.GEMINI_API_KEY else "DEGRADED_LOCAL_MODE"
+    online = gemini_service.is_online()
+    ai_status = "ONLINE" if online else "DEGRADED_LOCAL_MODE"
     
     return {
         "status": "healthy",
@@ -22,7 +24,7 @@ async def health_check():
         "database": "connected",
         "ai_engine": {
             "status": ai_status,
-            "model": settings.GEMINI_MODEL,
-            "offline_reasoning": True
+            "model": gemini_service.active_model_name,
+            "offline_reasoning": not online
         }
     }

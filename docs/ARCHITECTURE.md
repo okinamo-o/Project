@@ -7,7 +7,7 @@ NEXUS is designed as a local-first, modular, event-driven multimodal digital twi
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
 │                        PHYSICAL / IOT LAYER                            │
-│  [Wokwi ESP32 / Physical Node] DHT22, MQ-2 Gas, PIR, LDR, MPU6050 IMU   │
+│  [Wokwi ESP32 / Physical Node] DHT22, MQ-2 Gas, PIR, LDR               │
 │  [Vision Pipeline] DirectShow Webcam / Real-time Synthetic Generator   │
 │  [Audio Pipeline] Microphone DSP / Spectral Centroid Classifier        │
 └───────────────────────────────────┬────────────────────────────────────┘

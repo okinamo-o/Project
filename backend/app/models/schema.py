@@ -48,7 +48,7 @@ class SensorReading(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     device_id = Column(String(64), ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
     timestamp = Column(DateTime(timezone=True), default=utcnow, index=True)
-    sensor_type = Column(String(64), nullable=False, index=True)   # temperature, humidity, gas, motion, light, vibration
+    sensor_type = Column(String(64), nullable=False, index=True)   # temperature, humidity, gas, motion, light
     value = Column(Float, nullable=False)
     unit = Column(String(16), default="")
     quality = Column(String(32), default="GOOD")

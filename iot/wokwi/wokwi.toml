@@ -1,8 +1,5 @@
 [wokwi]
 version = 1
-firmware = "../firmware/sketch.ino"
-elf = "../firmware/build/sketch.elf"
-
-[serial]
-mode = "tcp"
-port = 4000
+# Compiled with: powershell -File tools\build_firmware.ps1
+firmware = "../firmware/build/sketch.ino.merged.bin"
+elf = "../firmware/build/sketch.ino.elf"

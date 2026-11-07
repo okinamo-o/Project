@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     MQTT_BROKER_HOST: str = "localhost"
     MQTT_BROKER_PORT: int = 1883
     MQTT_TOPIC_SENSORS: str = "nexus/sensors/telemetry"
+
+    # Email Alert & Warning Reporting
+    ALERT_RECIPIENT_EMAIL: str = "louayhamdi438@gmail.com"
+    AUTO_EMAIL_ON_ALERT: bool = True
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = "louayhamdi438@gmail.com"
+    SMTP_PASSWORD: Optional[str] = None
     
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),

@@ -2,16 +2,14 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <DHT.h>
-#include <Wire.h>
-#include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
+#include <math.h>
 
 // WiFi Configuration (Wokwi uses Wokwi-GUEST with empty password)
 const char* WIFI_SSID = "Wokwi-GUEST";
 const char* WIFI_PASSWORD = "";
 
 // NEXUS Backend Telemetry Endpoint
-// In Wokwi simulation, host machine is accessible via host.wokwi.internal or custom IP
 // Multi-Gateway Endpoint Fallback (host.wokwi.internal -> 10.0.2.2 -> LAN IP -> localhost)
 const char* SERVER_URLS[] = {
   "http://host.wokwi.internal:8000/api/sensors/batch",
@@ -33,8 +31,6 @@ int active_url_idx = 0;
 #define PIN_BUZZER 15
 
 DHT dht(DHTPIN, DHTTYPE);
-Adafruit_MPU6050 mpu;
-bool mpu_available = false;
 
 unsigned long last_transmit_ms = 0;
 const unsigned long TRANSMIT_INTERVAL_MS = 2000;
@@ -42,7 +38,7 @@ const unsigned long TRANSMIT_INTERVAL_MS = 2000;
 void setup() {
   Serial.begin(115200);
   delay(500);
-  Serial.println("[NEXUS-ESP32] Initializing Multimodal Sensor Node with Smoke Detector...");
+  Serial.println("[NEXUS-ESP32] Initializing Multimodal Sensor Node with Smoke & LDR Fire Detector...");
 
   pinMode(PIN_GAS, INPUT);
   pinMode(PIN_SMOKE, INPUT);
@@ -52,16 +48,6 @@ void setup() {
   pinMode(PIN_BUZZER, OUTPUT);
 
   dht.begin();
-
-  Wire.begin(21, 22);
-  if (mpu.begin()) {
-    mpu_available = true;
-    mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
-    mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
-    Serial.println("[NEXUS-ESP32] MPU6050 Accelerometer/Vibration Initialized.");
-  } else {
-    Serial.println("[NEXUS-ESP32] MPU6050 not detected, using synthetic acceleration.");
-  }
 
   // Connect to WiFi
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -91,40 +77,29 @@ void loop() {
     if (isnan(temperature)) temperature = 23.5;
     if (isnan(humidity)) humidity = 45.0;
 
-    // 2. Read Gas Sensor (Mapped from ADC 0-4095 to 50-1000 ppm)
+    // 2. Read Gas Sensor: knob position 0-1023 == 0-1023 ppm (ADC 0-4095)
     int raw_gas = analogRead(PIN_GAS);
-    float gas_ppm = map(raw_gas, 0, 4095, 50, 1000);
+    float gas_ppm = (float)raw_gas * (1023.0 / 4095.0);
 
-    // 2b. Read Smoke Sensor (Optical Obscuration 0.0% - 100.0%)
+    // 2b. Read Smoke Sensor: knob position 0-1023 == 0.0% - 100.0% obscuration
     int raw_smoke = analogRead(PIN_SMOKE);
     float smoke_pct = (float)raw_smoke * (100.0 / 4095.0);
 
     // 3. Read PIR Motion Sensor
     int motion_detected = digitalRead(PIN_PIR);
 
-    // 4. Read LDR Photoresistor (Mapped to Lux 0-1000)
+    // 4. Read LDR Photoresistor using Wokwi's official GAMMA=0.7, RL10=50k, R_series=10k transfer function
     int raw_ldr = analogRead(PIN_LDR);
-    float light_lux = map(raw_ldr, 0, 4095, 0, 1000);
-
-    // 5. Read MPU6050 Vibration
-    float vibration_g = 0.05;
-    if (mpu_available) {
-      sensors_event_t a, g, temp;
-      mpu.getEvent(&a, &g, &temp);
-      vibration_g = sqrt(sq(a.acceleration.x) + sq(a.acceleration.y) + sq(a.acceleration.z - 9.8));
-    }
-
-    // Alarm indicator if gas, temperature, or smoke high
-    if (temperature > 40.0 || gas_ppm > 400.0 || smoke_pct > 15.0) {
-      digitalWrite(PIN_LED, HIGH);
-      tone(PIN_BUZZER, 1000, 200);
-    } else {
-      digitalWrite(PIN_LED, LOW);
-      noTone(PIN_BUZZER);
-    }
+    float v_ratio = (float)raw_ldr / 4095.0f;
+    if (v_ratio < 0.0005f) v_ratio = 0.0005f;
+    if (v_ratio > 0.9995f) v_ratio = 0.9995f;
+    float r_ldr_kohm = 10.0f * v_ratio / (1.0f - v_ratio);
+    float light_lux = 10.0f * powf(50.0f / r_ldr_kohm, 1.0f / 0.7f);
+    if (light_lux < 0.0f) light_lux = 0.0f;
+    if (light_lux > 100000.0f) light_lux = 100000.0f;
 
     // Formulate JSON Batch Payload
-    StaticJsonDocument<512> doc;
+    StaticJsonDocument<640> doc;
     doc["device_id"] = "esp32_lab02";
     doc["room_id"] = "lab_02";
 
@@ -159,29 +134,61 @@ void loop() {
     r_light["sensor_type"] = "light";
     r_light["value"] = round(light_lux);
     r_light["unit"] = "lux";
-
-    JsonObject r_vib = readings.createNestedObject();
-    r_vib["sensor_type"] = "vibration";
-    r_vib["value"] = round(vibration_g * 100.0) / 100.0;
-    r_vib["unit"] = "g";
+    r_light["calibrated"] = true;
 
     String json_payload;
     serializeJson(doc, json_payload);
 
     Serial.println("[NEXUS-ESP32] Telemetry packet: " + json_payload);
 
-    // Transmit via HTTP POST
+    // Multi-Sensor ML Fusion Hazard Evaluation:
+    // 1. Fire Conflagration requires 3-sensor corroboration: High Temp (>= 32°C) + Smoke (>= 6%) + High Lux flame light (>= 700 lux).
+    //    High Temp + Smoke WITHOUT High Lux (e.g. 500 lux normal light or 20 lux dark) means no flame radiance -> no fire hazard!
+    // 2. Gas leak hazard triggers on correlated Temp/Smoke + Gas (>= 160 ppm) or standalone Gas (>= 200 ppm).
+    bool ldr_fire_signature = (light_lux >= 700.0);
+    bool fire_hazard = (temperature >= 32.0 && smoke_pct >= 6.0 && ldr_fire_signature);
+    bool gas_hazard =
+        (temperature >= 32.0 && gas_ppm >= 160.0) ||
+        (smoke_pct >= 6.0 && gas_ppm >= 160.0) ||
+        (gas_ppm >= 200.0);
+    bool ml_hazard_concluded = fire_hazard || gas_hazard;
+
+    // Transmit via HTTP POST (tries each gateway URL, remembers the one that works)
     if (WiFi.status() == WL_CONNECTED) {
-      HTTPClient http;
-      http.begin(SERVER_URL);
-      http.addHeader("Content-Type", "application/json");
-      int http_code = http.POST(json_payload);
-      if (http_code > 0) {
-        Serial.printf("[NEXUS-ESP32] POST Status: %d\n", http_code);
-      } else {
-        Serial.printf("[NEXUS-ESP32] POST Failed: %s\n", http.errorToString(http_code).c_str());
+      bool sent = false;
+      for (int i = 0; i < NUM_SERVER_URLS && !sent; i++) {
+        int idx = (active_url_idx + i) % NUM_SERVER_URLS;
+        HTTPClient http;
+        http.begin(SERVER_URLS[idx]);
+        http.addHeader("Content-Type", "application/json");
+        http.setTimeout(1500);
+        int http_code = http.POST(json_payload);
+        if (http_code == 200) {
+          active_url_idx = idx;
+          sent = true;
+          String resp = http.getString();
+          StaticJsonDocument<256> resp_doc;
+          if (deserializeJson(resp_doc, resp) == DeserializationError::Ok) {
+            if (resp_doc.containsKey("hazard_detected")) {
+              ml_hazard_concluded = resp_doc["hazard_detected"].as<bool>();
+            }
+          }
+          Serial.printf("[NEXUS-ESP32] POST OK via %s\n", SERVER_URLS[idx]);
+        }
+        http.end();
       }
-      http.end();
+      if (!sent) {
+        Serial.println("[NEXUS-ESP32] POST failed on all gateway URLs (is the backend running on port 8000?)");
+      }
+    }
+
+    // Hazard Alert: Only activate alarm LED & Buzzer when ML / multi-sensor fusion concludes danger
+    if (ml_hazard_concluded) {
+      digitalWrite(PIN_LED, HIGH);
+      tone(PIN_BUZZER, 1000, 200);
+    } else {
+      digitalWrite(PIN_LED, LOW);
+      noTone(PIN_BUZZER);
     }
   }
 }

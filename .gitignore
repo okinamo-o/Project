@@ -23,6 +23,14 @@ dist/
 *.sqlite
 *.sqlite3
 nexus.db
+*.db-shm
+*.db-wal
+
+# Temporary & Local Runtime Caches
+logs/
+.firebase/
+scratch/
+tools/arduino-cli/
 
 # Cloud Secrets, API Keys & Service Account Credentials
 .env

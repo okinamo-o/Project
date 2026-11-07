@@ -7,7 +7,7 @@ import logging
 import time
 import socket
 import threading
-import httpx
+import httpx  # type: ignore
 from backend.app.core.config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] [WOKWI-BRIDGE] %(message)s")
@@ -55,7 +55,7 @@ class WokwiBridge:
 
     def start_mqtt(self):
         try:
-            import paho.mqtt.client as mqtt
+            import paho.mqtt.client as mqtt  # type: ignore
             self.mqtt_client = mqtt.Client()
             self.mqtt_client.on_connect = self.on_mqtt_connect
             self.mqtt_client.on_message = self.on_mqtt_message
@@ -108,7 +108,8 @@ class WokwiBridge:
 
     def start(self):
         self.start_mqtt()
-        self.start_serial_server(port=4000)
+        self.start_serial_server(port=4000)  # Lab 02 Wokwi Simulation
+        self.start_serial_server(port=4001)  # Classroom 01 Wokwi Simulation
 
 if __name__ == "__main__":
     bridge = WokwiBridge()

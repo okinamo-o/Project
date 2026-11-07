@@ -44,8 +44,7 @@ Ingest multi-channel batch payload from ESP32:
     {"sensor_type": "temperature", "value": 25.1, "unit": "C"},
     {"sensor_type": "humidity", "value": 44.0, "unit": "%"},
     {"sensor_type": "gas", "value": 110.0, "unit": "ppm"},
-    {"sensor_type": "motion", "value": 1, "unit": "state"},
-    {"sensor_type": "vibration", "value": 0.04, "unit": "g"}
+    {"sensor_type": "motion", "value": 1, "unit": "state"}
   ]
 }
 ```

@@ -1,29 +1,33 @@
 import os
 import asyncio
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from backend.app.core.config import settings
 
 logger = logging.getLogger("nexus.ai_service")
 
 class GeminiReasoningService:
     """
-    High-level reasoning and decision support service.
-    Integrates Google GenAI SDK (Gemini) over structured project data.
+    High-level reasoning and decision support service powered by Google Gemini.
+    Features automated multi-model cascade (falls back gracefully across fast
+    flash-lite models if a specific model hits quota or temporary rate limits).
     Gracefully degrades to local deterministic expert system when offline
     or when GEMINI_API_KEY is not configured.
     """
     def __init__(self):
-        self.api_key = settings.GEMINI_API_KEY
-        self.model_name = settings.GEMINI_MODEL or "gemini-3.6-flash"
+        self.api_key = settings.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY")
+        self.model_name = settings.GEMINI_MODEL or "gemini-flash-lite-latest"
+        self.active_model_name = self.model_name
         self.client = None
         self._init_client()
 
     def _init_client(self):
+        self.api_key = settings.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY")
         if self.api_key:
             try:
                 from google import genai
                 self.client = genai.Client(api_key=self.api_key)
+                self.active_model_name = self.model_name
                 logger.info(f"[AI] Gemini client initialized with model '{self.model_name}'.")
             except Exception as e:
                 logger.warning(f"[AI] Could not initialize Gemini SDK ({e}). Degraded local mode active.")
@@ -33,6 +37,8 @@ class GeminiReasoningService:
             self.client = None
 
     def is_online(self) -> bool:
+        if not self.client and (settings.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY")):
+            self._init_client()
         return self.client is not None
 
     def _load_prompt(self, prompt_name: str) -> str:
@@ -41,6 +47,62 @@ class GeminiReasoningService:
             with open(prompt_path, "r", encoding="utf-8") as f:
                 return f.read()
         return "{question}"
+
+    async def _generate_content_robust(self, prompt: str) -> Optional[Tuple[str, str]]:
+        """
+        Attempts generation using the configured model, and transparently falls back
+        to resilient Google Gemini Flash / Flash-Lite models if the primary model hits
+        a 429 quota exhaustion, 503 spike, or 404 endpoint.
+        """
+        if not self.client:
+            self._init_client()
+            if not self.client:
+                return None
+
+        candidate_models = [
+            self.model_name,
+            "gemini-flash-lite-latest",
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-flash-lite",
+            "gemini-3.6-flash",
+            "gemini-3.7-flash",
+            "gemini-3.8-flash",
+        ]
+        unique_models: List[str] = []
+        for m in candidate_models:
+            if m and m not in unique_models:
+                unique_models.append(m)
+
+        system_guardrail = (
+            "You are strictly the NEXUS Smart Building Operations Assistant. "
+            "You must ONLY answer questions related to the NEXUS Smart Building platform, its 9 monitored rooms, "
+            "live/historical sensor telemetry, safety incidents, ESP32/Wokwi IoT hardware, ML sensor fusion, "
+            "vision/audio AI subsystems, and brief operator greetings/acknowledgments. "
+            "NEVER write unrelated code (such as calculators, games, or general programming tasks) and NEVER answer "
+            "off-topic general knowledge questions. Always politely refuse any request outside the NEXUS Smart Building scope."
+        )
+
+        for model in unique_models:
+            try:
+                def _call():
+                    from google.genai import types
+                    return self.client.models.generate_content(
+                        model=model,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            system_instruction=system_guardrail,
+                            temperature=0.2,
+                        )
+                    )
+                response = await asyncio.wait_for(asyncio.to_thread(_call), timeout=15.0)
+                if response and response.text:
+                    self.active_model_name = model
+                    return response.text.strip(), model
+            except Exception as e:
+                logger.warning(f"[AI] Gemini generation with model '{model}' failed ({e}). Trying fallback...")
+                continue
+
+        return None
 
     async def explain_incident(self, incident: Dict[str, Any], room_name: str) -> Dict[str, Any]:
         """Generates an evidence-grounded incident explanation."""
@@ -68,20 +130,14 @@ class GeminiReasoningService:
             prediction_block="Forecast trajectory indicates continued upward drift over the next 5-15 minutes."
         )
 
-        if self.client:
-            try:
-                call_fn = lambda: self.client.models.generate_content(
-                    model=self.model_name,
-                    contents=prompt
-                )
-                response = await asyncio.wait_for(asyncio.to_thread(call_fn), timeout=15.0)
-                return {
-                    "explanation": response.text,
-                    "model": self.model_name,
-                    "is_offline_mode": False
-                }
-            except Exception as e:
-                logger.error(f"[AI] Gemini generation failed: {e}. Falling back to local engine.")
+        gen_res = await self._generate_content_robust(prompt)
+        if gen_res:
+            text, used_model = gen_res
+            return {
+                "explanation": text,
+                "model": used_model,
+                "is_offline_mode": False
+            }
 
         # Local Deterministic Expert Engine Fallback
         local_explanation = (
@@ -112,20 +168,14 @@ class GeminiReasoningService:
             question=question
         )
 
-        if self.client:
-            try:
-                call_fn = lambda: self.client.models.generate_content(
-                    model=self.model_name,
-                    contents=prompt
-                )
-                response = await asyncio.wait_for(asyncio.to_thread(call_fn), timeout=15.0)
-                return {
-                    "answer": response.text,
-                    "model": self.model_name,
-                    "is_offline_mode": False
-                }
-            except Exception as e:
-                logger.error(f"[AI] Gemini query failed: {e}. Using local response.")
+        gen_res = await self._generate_content_robust(prompt)
+        if gen_res:
+            text, used_model = gen_res
+            return {
+                "answer": text,
+                "model": used_model,
+                "is_offline_mode": False
+            }
 
         # Local Context-Aware Natural Language Answering
         q_lower = question.lower()

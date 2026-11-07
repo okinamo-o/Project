@@ -15,7 +15,7 @@ def train_detector(
     print(f"[ML-TRAIN] Loading dataset from {dataset_path}...")
     features = []
     labels = []
-    
+
     with open(dataset_path, "r") as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -23,11 +23,10 @@ def train_detector(
                 float(row["temperature"]),
                 float(row["humidity"]),
                 float(row["gas"]),
-                float(row["vibration"]),
-                float(row["motion"]),
+                float(row.get("smoke", 0.3)),
+                float(row.get("light", 450.0)),
                 float(row["temp_rate_of_change"]),
-                float(row["gas_rate_of_change"]),
-                float(row["vibration_variance"])
+                float(row["gas_rate_of_change"])
             ]
             features.append(feat)
             labels.append(int(row["is_anomaly"]))
@@ -36,23 +35,20 @@ def train_detector(
     y_true = np.array(labels)
 
     feature_names = [
-        "temperature", "humidity", "gas", "vibration", "motion",
-        "temp_rate_of_change", "gas_rate_of_change", "vibration_variance"
+        "temperature", "humidity", "gas", "smoke", "light",
+        "temp_rate_of_change", "gas_rate_of_change"
     ]
 
     print(f"[ML-TRAIN] Training Isolation Forest on {X.shape[0]} samples with {X.shape[1]} features...")
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    # Contamination is ~0.10 based on our synthetic dataset
-    iso = IsolationForest(n_estimators=150, contamination=0.10, random_state=42)
+    iso = IsolationForest(n_estimators=200, contamination=0.11, random_state=42)
     iso.fit(X_scaled)
 
-    # Predict: IsolationForest returns -1 for anomaly, 1 for normal
     raw_preds = iso.predict(X_scaled)
     y_pred = np.where(raw_preds == -1, 1, 0)
 
-    # Compute metrics
     acc = accuracy_score(y_true, y_pred)
     prec = precision_score(y_true, y_pred)
     rec = recall_score(y_true, y_pred)
@@ -67,8 +63,7 @@ def train_detector(
     print(f"==================================================")
 
     os.makedirs(os.path.dirname(model_output_path), exist_ok=True)
-    
-    # Save model pipeline
+
     pipeline = {
         "scaler": scaler,
         "model": iso,
@@ -77,9 +72,8 @@ def train_detector(
     joblib.dump(pipeline, model_output_path)
     print(f"[ML-TRAIN] Model saved to {model_output_path}")
 
-    # Save metadata
     metadata = {
-        "model_version": "nexus-isoforest-v1.0",
+        "model_version": "nexus-isoforest-v2.0",
         "algorithm": "IsolationForest",
         "features": feature_names,
         "n_samples": int(X.shape[0]),

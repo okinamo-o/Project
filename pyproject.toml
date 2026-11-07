@@ -1,0 +1,20 @@
+[tool.pyrefly]
+search-path = [
+    ".",
+    "backend",
+    "backend/venv/Lib/site-packages",
+    "iot/bridge"
+]
+ignore-missing-imports = [
+    "httpx",
+    "httpx.*",
+    "paho",
+    "paho.*"
+]
+
+[tool.pyrefly.errors]
+missing-import = "ignore"
+
+[errors]
+missing-import = "ignore"
+

@@ -17,11 +17,9 @@ The feature vector captures both instantaneous readings and temporal dynamics:
 | `temperature` | Instantaneous temperature (°C) | Raw DHT22 reading |
 | `humidity` | Instantaneous relative humidity (%) | Raw DHT22 reading |
 | `gas` | Gas concentration (ppm) | Mapped MQ-2 / potentiometer reading |
-| `vibration` | Total kinetic acceleration ($g$) | Vector magnitude $\sqrt{a_x^2 + a_y^2 + (a_z - 9.8)^2}$ |
 | `motion` | Binary presence state | PIR sensor output |
 | `temp_rate_of_change` | 1st derivative of temperature | $\Delta T / \Delta t$ (°C/min) |
 | `gas_rate_of_change` | 1st derivative of gas | $\Delta G / \Delta t$ (ppm/min) |
-| `vibration_variance` | Rolling kinetic instability | 5-step rolling window variance |
 
 ---
 
@@ -32,10 +30,10 @@ The feature vector captures both instantaneous readings and temporal dynamics:
 * **Contamination**: 0.10 (10% anomaly assumption)
 * **Preprocessing**: `sklearn.preprocessing.StandardScaler`
 * **Evaluation Metrics (Tested on 3,000 synthetic multi-modal samples)**:
-  - **Accuracy**: 93.60%
-  - **Precision**: 68.00%
-  - **Recall**: 68.00%
-  - **F1-Score**: 68.00%
+  - **Accuracy**: 94.00%
+  - **Precision**: 70.00%
+  - **Recall**: 70.00%
+  - **F1-Score**: 70.00%
 * **Model Artifact**: [`ml/models/anomaly_detector.joblib`](file:///c:/Users/Louay/Documents/Nexus/ml/models/anomaly_detector.joblib)
 * **Metadata**: [`ml/models/model_metadata.json`](file:///c:/Users/Louay/Documents/Nexus/ml/models/model_metadata.json)
 

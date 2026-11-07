@@ -6,7 +6,8 @@
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start -p 3000",
-    "lint": "next lint"
+    "lint": "next lint",
+    "deploy": "next build && cd .. && npx firebase-tools deploy --only hosting"
   },
   "dependencies": {
     "@types/three": "^0.162.0",

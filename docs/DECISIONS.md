@@ -39,7 +39,7 @@ This document records the foundational and ongoing architectural decisions for t
 
 * **Context**: Single-sensor alarms suffer from high false-positive rates (e.g. temporary temperature drift or a harmless noise).
 * **Decision**: Build an explicit fusion engine that scores incidents across 4 independent dimensions:
-  1. Environmental telemetry (Temperature, Gas, Humidity, Light, Vibration).
+  1. Environmental telemetry (Temperature, Gas, Humidity, Light).
   2. Visual evidence (Occupancy, unauthorized presence, rapid movement).
   3. Acoustic signatures (Alarm frequency, sudden impact, acoustic stress).
   4. Predictive trajectory (Forecasted sensor thresholds over +1m, +5m horizons).
