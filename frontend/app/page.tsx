@@ -800,31 +800,33 @@ export default function OperationsCenter() {
   };
 
   const renderSmoothSparkline = (data: number[], color: string) => {
-    const list = data && data.length >= 2 ? data : [data?.[0] ?? 20, data?.[0] ?? 20];
-    const min = Math.min(...list);
-    const max = Math.max(...list);
+    if (!data || data.length < 2) return null;
+    const min = Math.min(...data);
+    const max = Math.max(...data);
     const range = Math.max(max - min, 0.5);
-    const width = 140;
-    const height = 24;
-    const points = list
+    const width = 56;
+    const height = 20;
+    const points = data
       .map((val, idx) => {
-        const x = 3 + (idx / (list.length - 1)) * (width - 6);
-        const y = height - ((val - min) / range) * (height - 8) - 4;
+        const x = 2 + (idx / (data.length - 1)) * (width - 4);
+        const y = height - ((val - min) / range) * (height - 6) - 3;
         return `${x.toFixed(1)},${y.toFixed(1)}`;
       })
       .join(' ');
 
     return (
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-hidden" preserveAspectRatio="none">
-        <polyline
-          points={points}
-          fill="none"
-          stroke={color}
-          strokeWidth="2.2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
+      <div className="w-12 sm:w-14 h-5 overflow-hidden flex items-center justify-end shrink-0">
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-hidden" preserveAspectRatio="none">
+          <polyline
+            points={points}
+            fill="none"
+            stroke={color}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </div>
     );
   };
 
@@ -1132,16 +1134,16 @@ export default function OperationsCenter() {
               </span>
             </div>
 
-            <div className={`grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 ${selectedRoomId === 'classroom_01' ? 'xl:grid-cols-4' : 'xl:grid-cols-3 2xl:grid-cols-5'} gap-2.5 sm:gap-3.5`}>
+            <div className={`grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 ${selectedRoomId === 'classroom_01' ? 'xl:grid-cols-4' : 'xl:grid-cols-5'} gap-2.5 sm:gap-3`}>
               {/* Card 1: Temperature & Climate */}
-              <div className="studio-card p-3 sm:p-4 flex flex-col justify-between overflow-hidden relative">
+              <div className="studio-card p-3 flex flex-col justify-between overflow-hidden relative">
                 <div className="flex items-center justify-between gap-1 mb-1.5 sm:mb-2 min-w-0">
-                  <span className="text-[11px] sm:text-xs font-semibold text-[var(--text-secondary)] flex items-center gap-1 sm:gap-1.5 whitespace-nowrap">
-                    <Thermometer className={`h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0 ${(temperature >= 45 || (temperature >= 32 && activeIncident?.severity === 'CRITICAL')) ? 'text-red-500' : temperature >= 32 ? 'text-amber-500' : 'text-rose-500'}`} />
+                  <span className="text-[11px] font-semibold text-[var(--text-secondary)] flex items-center gap-1 whitespace-nowrap">
+                    <Thermometer className={`h-3.5 w-3.5 shrink-0 ${(temperature >= 45 || (temperature >= 32 && activeIncident?.severity === 'CRITICAL')) ? 'text-red-500' : temperature >= 32 ? 'text-amber-500' : 'text-rose-500'}`} />
                     <span>Temperature</span>
                   </span>
                   <span
-                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap ${
+                    className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 whitespace-nowrap ${
                       temperature >= 45 || (temperature >= 32 && activeIncident?.severity === 'CRITICAL')
                         ? 'bg-red-500/15 text-red-600 dark:text-red-400'
                         : temperature >= 32
@@ -1157,40 +1159,34 @@ export default function OperationsCenter() {
                   </span>
                 </div>
                 <div className="mt-1">
-                  <div className="flex items-baseline justify-between gap-1">
-                    <div className="text-xl sm:text-2xl font-display font-bold text-[var(--text-primary)] tnum whitespace-nowrap">
+                  <div className="flex items-center justify-between gap-1">
+                    <div className="text-xl font-display font-bold text-[var(--text-primary)] tnum whitespace-nowrap">
                       {temperature.toFixed(1)}°C
                     </div>
-                    <div className="text-[10px] sm:text-[11px] font-medium text-[var(--text-muted)] whitespace-nowrap">
-                      {humidity.toFixed(0)}% RH
-                    </div>
-                  </div>
-                  <div className="h-4 sm:h-5 w-full my-1.5 overflow-hidden flex items-center">
                     {renderSmoothSparkline(
                       currentTelem.tempHistory || [temperature],
                       temperature >= 45 || (temperature >= 32 && activeIncident?.severity === 'CRITICAL')
                         ? '#ef4444'
                         : temperature >= 32
                         ? '#f59e0b'
-                        : '#10b981'
+                        : '#f43f5e'
                     )}
                   </div>
-                  <div className="flex justify-between items-center text-[10px] text-[var(--text-muted)] whitespace-nowrap">
-                    <span>Climate</span>
-                    <span>{temperature >= 45 ? 'Extreme Heat' : temperature >= 32 ? 'Warm' : 'Nominal'}</span>
+                  <div className="text-[10px] sm:text-[11px] text-[var(--text-muted)] mt-1 whitespace-nowrap">
+                    Humidity: {humidity.toFixed(0)}% RH
                   </div>
                 </div>
               </div>
 
               {/* Card 2: Gas & Air Quality */}
-              <div className="studio-card p-3 sm:p-4 flex flex-col justify-between overflow-hidden relative">
+              <div className="studio-card p-3 flex flex-col justify-between overflow-hidden relative">
                 <div className="flex items-center justify-between gap-1 mb-1.5 sm:mb-2 min-w-0">
-                  <span className="text-[11px] sm:text-xs font-semibold text-[var(--text-secondary)] flex items-center gap-1 sm:gap-1.5 whitespace-nowrap">
-                    <Wind className={`h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0 ${gas > 350 ? 'text-red-500' : gas >= 160 ? 'text-amber-500' : 'text-teal-500'}`} />
+                  <span className="text-[11px] font-semibold text-[var(--text-secondary)] flex items-center gap-1 whitespace-nowrap">
+                    <Wind className={`h-3.5 w-3.5 shrink-0 ${gas > 350 ? 'text-red-500' : gas >= 160 ? 'text-amber-500' : 'text-teal-500'}`} />
                     <span>Gas & Air</span>
                   </span>
                   <span
-                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap ${
+                    className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 whitespace-nowrap ${
                       gas > 350
                         ? 'bg-red-500/15 text-red-600 dark:text-red-400'
                         : gas >= 160
@@ -1202,36 +1198,30 @@ export default function OperationsCenter() {
                   </span>
                 </div>
                 <div className="mt-1">
-                  <div className="flex items-baseline justify-between gap-1">
-                    <div className="text-xl sm:text-2xl font-display font-bold text-[var(--text-primary)] tnum whitespace-nowrap">
-                      {gas.toFixed(0)} <span className="text-[11px] sm:text-xs font-normal text-[var(--text-muted)]">ppm</span>
+                  <div className="flex items-center justify-between gap-1">
+                    <div className="text-xl font-display font-bold text-[var(--text-primary)] tnum whitespace-nowrap">
+                      {gas.toFixed(0)} <span className="text-[11px] font-normal text-[var(--text-muted)]">ppm</span>
                     </div>
-                    <div className="text-[10px] sm:text-[11px] font-medium text-[var(--text-muted)] whitespace-nowrap">
-                      MQ-2 Sensor
-                    </div>
-                  </div>
-                  <div className="h-4 sm:h-5 w-full my-1.5 overflow-hidden flex items-center">
                     {renderSmoothSparkline(
                       currentTelem.gasHistory || [gas],
                       gas > 350 ? '#ef4444' : gas >= 160 ? '#f59e0b' : '#14b8a6'
                     )}
                   </div>
-                  <div className="flex justify-between items-center text-[10px] text-[var(--text-muted)] whitespace-nowrap">
-                    <span>Air Quality</span>
-                    <span>{gas > 350 ? 'Hazardous' : gas >= 160 ? 'Elevated' : 'Clean'}</span>
+                  <div className="text-[10px] sm:text-[11px] text-[var(--text-muted)] mt-1 whitespace-nowrap">
+                    MQ-2 Air Monitor
                   </div>
                 </div>
               </div>
 
               {/* Card 3: Optical Smoke Detector */}
-              <div className="studio-card p-3 sm:p-4 flex flex-col justify-between overflow-hidden relative">
+              <div className="studio-card p-3 flex flex-col justify-between overflow-hidden relative">
                 <div className="flex items-center justify-between gap-1 mb-1.5 sm:mb-2 min-w-0">
-                  <span className="text-[11px] sm:text-xs font-semibold text-[var(--text-secondary)] flex items-center gap-1 sm:gap-1.5 whitespace-nowrap">
-                    <Flame className={`h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0 ${smoke > 15 ? 'text-red-500 animate-pulse' : smoke > 5 ? 'text-amber-500' : 'text-orange-500'}`} />
+                  <span className="text-[11px] font-semibold text-[var(--text-secondary)] flex items-center gap-1 whitespace-nowrap">
+                    <Flame className={`h-3.5 w-3.5 shrink-0 ${smoke > 15 ? 'text-red-500 animate-pulse' : smoke > 5 ? 'text-amber-500' : 'text-orange-500'}`} />
                     <span>Smoke</span>
                   </span>
                   <span
-                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap ${
+                    className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 whitespace-nowrap ${
                       smoke > 15
                         ? 'bg-red-500/15 text-red-600 dark:text-red-400'
                         : smoke > 5
@@ -1243,15 +1233,10 @@ export default function OperationsCenter() {
                   </span>
                 </div>
                 <div className="mt-1">
-                  <div className="flex items-baseline justify-between gap-1">
-                    <div className="text-xl sm:text-2xl font-display font-bold text-[var(--text-primary)] tnum whitespace-nowrap">
-                      {smoke.toFixed(1)}% <span className="text-[11px] sm:text-xs font-normal text-[var(--text-muted)]">smoke</span>
-                    </div>
-                    <div className="text-[10px] sm:text-[11px] font-medium text-[var(--text-muted)] whitespace-nowrap">
-                      Photoelectric
-                    </div>
+                  <div className="text-xl font-display font-bold text-[var(--text-primary)] tnum whitespace-nowrap">
+                    {smoke.toFixed(1)}% <span className="text-[11px] font-normal text-[var(--text-muted)]">smoke</span>
                   </div>
-                  <div className="w-full bg-[var(--bg-subtle)] rounded-full h-1.5 sm:h-2 overflow-hidden my-2.5 sm:my-3 border border-[var(--border-color)]">
+                  <div className="w-full bg-[var(--bg-subtle)] rounded-full h-1.5 overflow-hidden my-1.5 sm:my-2 border border-[var(--border-color)]">
                     <div
                       className={`h-full transition-all duration-500 rounded-full ${
                         smoke > 15
@@ -1272,7 +1257,7 @@ export default function OperationsCenter() {
 
               {/* Card 4: Acoustic Intelligence & Microphone (Omitted in Classroom 01 for privacy) */}
               {selectedRoomId !== 'classroom_01' && (
-                <div className={`studio-card p-3 sm:p-4 flex flex-col justify-between overflow-hidden relative transition-all ${
+                <div className={`studio-card p-3 flex flex-col justify-between overflow-hidden relative transition-all ${
                   audioEvent === 'ALARM'
                     ? 'border-red-500 shadow-md shadow-red-500/10'
                     : audioEvent === 'SPEECH'
@@ -1280,8 +1265,8 @@ export default function OperationsCenter() {
                     : ''
                 }`}>
                   <div className="flex items-center justify-between gap-1 mb-1.5 sm:mb-2 min-w-0">
-                    <span className="text-[11px] sm:text-xs font-semibold text-[var(--text-secondary)] flex items-center gap-1 sm:gap-1.5 whitespace-nowrap">
-                      <Mic className={`h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0 ${
+                    <span className="text-[11px] font-semibold text-[var(--text-secondary)] flex items-center gap-1 whitespace-nowrap">
+                      <Mic className={`h-3.5 w-3.5 shrink-0 ${
                         audioEvent === 'ALARM'
                           ? 'text-red-500 animate-pulse'
                           : audioEvent === 'SPEECH'
@@ -1291,7 +1276,7 @@ export default function OperationsCenter() {
                       <span>Microphone</span>
                     </span>
                     <span
-                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap ${
+                      className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 whitespace-nowrap ${
                         audioEvent === 'ALARM'
                           ? 'bg-red-500/20 text-red-600 dark:text-red-400 animate-pulse font-bold'
                           : audioEvent === 'SPEECH'
@@ -1306,40 +1291,37 @@ export default function OperationsCenter() {
                   </div>
                   <div className="mt-1">
                     <div className="flex items-baseline justify-between gap-1">
-                      <div className="text-xl sm:text-2xl font-display font-bold text-[var(--text-primary)] tracking-wide whitespace-nowrap">
+                      <div className="text-lg sm:text-xl font-display font-bold text-[var(--text-primary)] whitespace-nowrap">
                         {audioEvent}
                       </div>
                       <span className="text-[9px] sm:text-[10px] font-mono font-medium text-[var(--text-muted)] shrink-0 whitespace-nowrap">
                         {(audioRms * 1000).toFixed(1)} mV
                       </span>
                     </div>
-                    <div className="flex items-end gap-1 h-3 sm:h-3.5 my-2">
+                    <div className="flex items-end gap-1 h-3 mt-1.5 mb-1">
                       {[0.0018, 0.0035, 0.007, 0.015, 0.035].map((thresh, idx) => {
                         const active = audioRms >= thresh;
                         let barColor = 'bg-[var(--border-color)] h-1';
                         if (active) {
-                          if (audioEvent === 'SPEECH') barColor = 'bg-violet-500 h-3 sm:h-3.5';
-                          else if (audioEvent === 'ALARM') barColor = 'bg-red-500 h-3 sm:h-3.5';
-                          else barColor = 'bg-emerald-500 h-2.5';
+                          if (audioEvent === 'SPEECH') barColor = 'bg-violet-500 h-3';
+                          else if (audioEvent === 'ALARM') barColor = 'bg-red-500 h-3';
+                          else barColor = 'bg-emerald-500 h-2';
                         }
                         return (
                           <div
                             key={idx}
-                            className={'flex-1 rounded-full transition-all duration-100 ' + barColor}
+                            className={'w-2 rounded-full transition-all duration-100 ' + barColor}
                           />
                         );
                       })}
                     </div>
-                    <div className="text-[10px] sm:text-[11px] text-[var(--text-muted)] flex items-center justify-between whitespace-nowrap">
-                      <span className="flex items-center gap-1.5">
-                        <span className={`inline-block h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full shrink-0 ${
-                          audioEvent === 'SPEECH' ? 'bg-violet-500 animate-ping' :
-                          audioEvent === 'ALARM' ? 'bg-red-500 animate-ping' :
-                          'bg-emerald-500'
-                        }`} />
-                        <span>Acoustic DSP</span>
-                      </span>
-                      <span>16kHz</span>
+                    <div className="text-[10px] text-[var(--text-muted)] flex items-center gap-1 whitespace-nowrap">
+                      <span className={`inline-block h-1.5 w-1.5 rounded-full shrink-0 ${
+                        audioEvent === 'SPEECH' ? 'bg-violet-500 animate-ping' :
+                        audioEvent === 'ALARM' ? 'bg-red-500 animate-ping' :
+                        'bg-emerald-500'
+                      }`} />
+                      <span>Acoustic DSP (16kHz)</span>
                     </div>
                   </div>
                 </div>
@@ -1348,18 +1330,18 @@ export default function OperationsCenter() {
               {/* Card 5: People In Front & Live Camera */}
               <div
                 onClick={() => setSnapshotModalOpen(true)}
-                className={`studio-card p-3 sm:p-4 flex flex-col justify-between overflow-hidden relative cursor-pointer group hover:border-emerald-500/60 hover:shadow-lg transition-all ${
+                className={`studio-card p-3 flex flex-col justify-between overflow-hidden relative cursor-pointer group hover:border-emerald-500/60 hover:shadow-lg transition-all ${
                   selectedRoomId !== 'classroom_01' ? 'col-span-2 sm:col-span-1' : ''
                 }`}
                 title="Click to open 45 FPS Edge Camera Feed"
               >
                 <div className="flex items-center justify-between gap-1 mb-1.5 sm:mb-2 min-w-0">
-                  <span className="text-[11px] sm:text-xs font-semibold text-[var(--text-secondary)] flex items-center gap-1 sm:gap-1.5 whitespace-nowrap">
-                    <Eye className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-500 group-hover:scale-110 transition-transform shrink-0" />
+                  <span className="text-[11px] font-semibold text-[var(--text-secondary)] flex items-center gap-1 whitespace-nowrap">
+                    <Eye className="h-3.5 w-3.5 text-emerald-500 group-hover:scale-110 transition-transform shrink-0" />
                     <span>People In Front</span>
                   </span>
                   <span
-                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap ${
+                    className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 whitespace-nowrap ${
                       occupancy > 0
                         ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold'
                         : 'bg-slate-500/10 text-slate-500'
@@ -1369,24 +1351,24 @@ export default function OperationsCenter() {
                   </span>
                 </div>
 
-                <div className="my-1">
-                  <div className="text-2xl sm:text-3xl font-display font-extrabold text-[var(--text-primary)] tnum tracking-tight flex items-baseline gap-1.5 whitespace-nowrap">
+                <div className="my-0.5">
+                  <div className="text-xl sm:text-2xl font-display font-extrabold text-[var(--text-primary)] tnum tracking-tight flex items-baseline gap-1 whitespace-nowrap">
                     {occupancy}
-                    <span className="text-[11px] sm:text-xs font-normal text-[var(--text-muted)]">
+                    <span className="text-[11px] font-normal text-[var(--text-muted)]">
                       {occupancy === 1 ? 'person' : 'people'}
                     </span>
                   </div>
-                  <p className="text-[10px] sm:text-[11px] text-[var(--text-muted)] mt-1 whitespace-nowrap">
-                    {occupancy > 0 ? 'Subject identified in zone' : 'No subjects in zone'}
+                  <p className="text-[10px] text-[var(--text-muted)] mt-0.5 whitespace-nowrap">
+                    {occupancy > 0 ? 'Subject in view' : 'No subjects in zone'}
                   </p>
                 </div>
 
-                <div className="pt-1.5 sm:pt-2 border-t border-[var(--border-color)] mt-1 flex items-center justify-between text-xs text-emerald-600 dark:text-emerald-400 font-medium group-hover:text-emerald-500 whitespace-nowrap">
-                  <span className="flex items-center gap-1 text-[10px] sm:text-[11px]">
+                <div className="pt-1.5 border-t border-[var(--border-color)] mt-1 flex items-center justify-between text-xs text-emerald-600 dark:text-emerald-400 font-medium group-hover:text-emerald-500 whitespace-nowrap">
+                  <span className="flex items-center gap-1 text-[10px]">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping"></span>
                     45 FPS Live
                   </span>
-                  <span className="flex items-center gap-1 text-[10px] sm:text-[11px] text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]">
+                  <span className="flex items-center gap-1 text-[10px] text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]">
                     <Maximize2 className="h-3 w-3" /> Camera
                   </span>
                 </div>
