@@ -808,15 +808,15 @@ export default function OperationsCenter() {
     const height = 24;
     const points = data
       .map((val, idx) => {
-        const x = (idx / (data.length - 1)) * width;
-        const y = height - ((val - min) / range) * (height - 6) - 3;
+        const x = 3 + (idx / (data.length - 1)) * (width - 6);
+        const y = height - ((val - min) / range) * (height - 8) - 4;
         return `${x.toFixed(1)},${y.toFixed(1)}`;
       })
       .join(' ');
 
     return (
-      <div className="hidden sm:flex w-20 h-6 overflow-hidden items-center justify-end shrink-0">
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-hidden">
+      <div className="hidden sm:flex w-14 sm:w-16 md:w-20 max-w-[42%] h-5 sm:h-6 overflow-hidden items-center justify-end shrink min-w-0">
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-hidden" preserveAspectRatio="none">
           <polyline
             points={points}
             fill="none"
@@ -1134,10 +1134,10 @@ export default function OperationsCenter() {
               </span>
             </div>
 
-            <div className={`grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 ${selectedRoomId === 'classroom_01' ? 'xl:grid-cols-4' : 'xl:grid-cols-5'} gap-2.5 sm:gap-3.5`}>
+            <div className={`grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 ${selectedRoomId === 'classroom_01' ? 'xl:grid-cols-4' : 'xl:grid-cols-3 2xl:grid-cols-5'} gap-2.5 sm:gap-3.5`}>
               {/* Card 1: Temperature & Climate */}
-              <div className="studio-card p-3 sm:p-4 flex flex-col justify-between">
-                <div className="flex items-center justify-between gap-1 mb-1.5 sm:mb-2">
+              <div className="studio-card p-3 sm:p-4 flex flex-col justify-between overflow-hidden relative">
+                <div className="flex items-center justify-between gap-1 mb-1.5 sm:mb-2 min-w-0">
                   <span className="text-[11px] sm:text-xs font-medium text-[var(--text-secondary)] flex items-center gap-1 sm:gap-1.5 truncate">
                     <Thermometer className={`h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0 ${(temperature >= 45 || (temperature >= 32 && activeIncident?.severity === 'CRITICAL')) ? 'text-red-500' : temperature >= 32 ? 'text-amber-500' : 'text-rose-500'}`} />
                     <span className="truncate">Temperature</span>
@@ -1158,12 +1158,12 @@ export default function OperationsCenter() {
                       : 'Normal'}
                   </span>
                 </div>
-                <div className="flex items-end justify-between gap-1 mt-1">
-                  <div>
-                    <div className="text-xl sm:text-2xl font-display font-bold text-[var(--text-primary)] tnum">
+                <div className="flex items-end justify-between gap-1.5 mt-1 min-w-0">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xl sm:text-2xl font-display font-bold text-[var(--text-primary)] tnum truncate">
                       {temperature.toFixed(1)}°C
                     </div>
-                    <div className="text-[10px] sm:text-[11px] text-[var(--text-muted)] mt-0.5">
+                    <div className="text-[10px] sm:text-[11px] text-[var(--text-muted)] mt-0.5 truncate">
                       Humidity: {humidity.toFixed(0)}% RH
                     </div>
                   </div>
@@ -1172,8 +1172,8 @@ export default function OperationsCenter() {
               </div>
 
               {/* Card 2: Gas & Air Quality */}
-              <div className="studio-card p-3 sm:p-4 flex flex-col justify-between">
-                <div className="flex items-center justify-between gap-1 mb-1.5 sm:mb-2">
+              <div className="studio-card p-3 sm:p-4 flex flex-col justify-between overflow-hidden relative">
+                <div className="flex items-center justify-between gap-1 mb-1.5 sm:mb-2 min-w-0">
                   <span className="text-[11px] sm:text-xs font-medium text-[var(--text-secondary)] flex items-center gap-1 sm:gap-1.5 truncate">
                     <Wind className={`h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0 ${gas > 350 ? 'text-red-500' : gas >= 160 ? 'text-amber-500' : 'text-teal-500'}`} />
                     <span className="truncate">Gas & Air</span>
@@ -1190,12 +1190,12 @@ export default function OperationsCenter() {
                     {gas > 350 ? 'Hazard' : gas >= 160 ? 'Elevated' : 'Safe'}
                   </span>
                 </div>
-                <div className="flex items-end justify-between gap-1 mt-1">
-                  <div>
-                    <div className="text-xl sm:text-2xl font-display font-bold text-[var(--text-primary)] tnum">
+                <div className="flex items-end justify-between gap-1.5 mt-1 min-w-0">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xl sm:text-2xl font-display font-bold text-[var(--text-primary)] tnum truncate">
                       {gas.toFixed(0)} <span className="text-[11px] sm:text-xs font-normal text-[var(--text-muted)]">ppm</span>
                     </div>
-                    <div className="text-[10px] sm:text-[11px] text-[var(--text-muted)] mt-0.5">
+                    <div className="text-[10px] sm:text-[11px] text-[var(--text-muted)] mt-0.5 truncate">
                       MQ-2 Air Monitor
                     </div>
                   </div>
@@ -1204,8 +1204,8 @@ export default function OperationsCenter() {
               </div>
 
               {/* Card 3: Optical Smoke Detector */}
-              <div className="studio-card p-3 sm:p-4 flex flex-col justify-between">
-                <div className="flex items-center justify-between gap-1 mb-1.5 sm:mb-2">
+              <div className="studio-card p-3 sm:p-4 flex flex-col justify-between overflow-hidden relative">
+                <div className="flex items-center justify-between gap-1 mb-1.5 sm:mb-2 min-w-0">
                   <span className="text-[11px] sm:text-xs font-medium text-[var(--text-secondary)] flex items-center gap-1 sm:gap-1.5 truncate">
                     <Flame className={`h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0 ${smoke > 15 ? 'text-red-500 animate-pulse' : smoke > 5 ? 'text-amber-500' : 'text-orange-500'}`} />
                     <span className="truncate">Smoke</span>
@@ -1222,8 +1222,8 @@ export default function OperationsCenter() {
                     {smoke > 15 ? 'Dense' : smoke > 5 ? 'Elevated' : 'Clean'}
                   </span>
                 </div>
-                <div className="mt-1">
-                  <div className="text-xl sm:text-2xl font-display font-bold text-[var(--text-primary)] tnum">
+                <div className="mt-1 min-w-0">
+                  <div className="text-xl sm:text-2xl font-display font-bold text-[var(--text-primary)] tnum truncate">
                     {smoke.toFixed(1)}% <span className="text-[11px] sm:text-xs font-normal text-[var(--text-muted)]">smoke</span>
                   </div>
                   <div className="w-full bg-[var(--bg-subtle)] rounded-full h-1.5 sm:h-2 overflow-hidden my-1.5 sm:my-2 border border-[var(--border-color)]">
@@ -1247,14 +1247,14 @@ export default function OperationsCenter() {
 
               {/* Card 4: Acoustic Intelligence & Microphone (Omitted in Classroom 01 for privacy) */}
               {selectedRoomId !== 'classroom_01' && (
-                <div className={`studio-card p-3 sm:p-4 flex flex-col justify-between transition-all ${
+                <div className={`studio-card p-3 sm:p-4 flex flex-col justify-between overflow-hidden relative transition-all ${
                   audioEvent === 'ALARM'
                     ? 'border-red-500 shadow-md shadow-red-500/10'
                     : audioEvent === 'SPEECH'
                     ? 'border-violet-500 shadow-md shadow-violet-500/10'
                     : ''
                 }`}>
-                  <div className="flex items-center justify-between gap-1 mb-1.5 sm:mb-2">
+                  <div className="flex items-center justify-between gap-1 mb-1.5 sm:mb-2 min-w-0">
                     <span className="text-[11px] sm:text-xs font-medium text-[var(--text-secondary)] flex items-center gap-1 sm:gap-1.5 truncate">
                       <Mic className={`h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0 ${
                         audioEvent === 'ALARM'
@@ -1279,12 +1279,12 @@ export default function OperationsCenter() {
                       {audioEvent === 'ALARM' ? 'Siren' : audioEvent === 'SPEECH' ? 'Voice' : audioEvent === 'IMPACT' ? 'Impact' : 'Quiet'}
                     </span>
                   </div>
-                  <div className="mt-1">
+                  <div className="mt-1 min-w-0">
                     <div className="flex items-baseline justify-between gap-1">
-                      <div className="text-xl sm:text-2xl font-display font-bold text-[var(--text-primary)] tracking-wide">
+                      <div className="text-xl sm:text-2xl font-display font-bold text-[var(--text-primary)] tracking-wide truncate">
                         {audioEvent}
                       </div>
-                      <span className="text-[9px] sm:text-[10px] font-mono font-medium text-[var(--text-muted)]">
+                      <span className="text-[9px] sm:text-[10px] font-mono font-medium text-[var(--text-muted)] shrink-0">
                         {(audioRms * 1000).toFixed(1)} mV
                       </span>
                     </div>
@@ -1320,7 +1320,7 @@ export default function OperationsCenter() {
               {/* Card 5: People In Front & Live Camera */}
               <div
                 onClick={() => setSnapshotModalOpen(true)}
-                className={`studio-card p-3 sm:p-4 flex flex-col justify-between cursor-pointer group hover:border-emerald-500/60 hover:shadow-lg transition-all ${
+                className={`studio-card p-3 sm:p-4 flex flex-col justify-between overflow-hidden relative cursor-pointer group hover:border-emerald-500/60 hover:shadow-lg transition-all ${
                   selectedRoomId !== 'classroom_01' ? 'col-span-2 sm:col-span-1' : ''
                 }`}
                 title="Click to open 45 FPS Edge Camera Feed"
